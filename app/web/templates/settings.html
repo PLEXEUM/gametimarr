@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold">Settings</h1>
+        <p class="text-sm mt-1" style="color: var(--text-secondary);">
+            Configure Gametimarr connections and preferences
+        </p>
+    </div>
+
+    <!-- TheSportsDB Settings -->
+    <div class="card rounded-xl overflow-hidden mb-6">
+        <div class="w-full flex items-center gap-3 p-4 border-b" style="border-color: var(--border-color);">
+            <svg class="w-5 h-5" style="color: var(--accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.66 0 3-4 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4-3-9s1.34-9 3-9m-9 9a9 9 0 019-9"></path>
+            </svg>
+            <div>
+                <h2 class="font-semibold">TheSportsDB</h2>
+                <p class="text-xs" style="color: var(--text-secondary);">API key for sports schedule data</p>
+            </div>
+        </div>
+        <div class="p-4">
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                        API Key
+                    </label>
+                    <input id="thesportsdb-key" type="password" placeholder="Enter your TheSportsDB API key"
+                           class="w-full px-3 py-2 rounded-lg text-sm border"
+                           style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">
+                        Get a free key at <a href="https://www.thesportsdb.com/api.php" target="_blank" style="color: var(--accent);">thesportsdb.com</a>
+                    </p>
+                </div>
+                <button onclick="saveSportsDbKey()" class="px-4 py-2 rounded-lg text-sm font-medium text-white btn-primary">
+                    Save API Key
+                </button>
+                <div id="thesportsdb-status" class="text-xs mt-2" style="color: var(--text-secondary);"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prowlarr Settings -->
+    <div class="card rounded-xl overflow-hidden mb-6">
+        <div class="w-full flex items-center gap-3 p-4 border-b" style="border-color: var(--border-color);">
+            <svg class="w-5 h-5" style="color: var(--accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+            <div>
+                <h2 class="font-semibold">Prowlarr / Jackett</h2>
+                <p class="text-xs" style="color: var(--text-secondary);">Indexer for searching sports releases</p>
+            </div>
+        </div>
+        <div class="p-4">
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                        URL
+                    </label>
+                    <input id="prowlarr-url" type="url" placeholder="http://localhost:9696"
+                           class="w-full px-3 py-2 rounded-lg text-sm border"
+                           style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                        API Key
+                    </label>
+                    <input id="prowlarr-key" type="password" placeholder="Your Prowlarr API key"
+                           class="w-full px-3 py-2 rounded-lg text-sm border"
+                           style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                </div>
+                <button onclick="saveProwlarrSettings()" class="px-4 py-2 rounded-lg text-sm font-medium text-white btn-primary">
+                    Save Prowlarr Settings
+                </button>
+                <div id="prowlarr-status" class="text-xs mt-2" style="color: var(--text-secondary);"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- qBittorrent Settings -->
+    <div class="card rounded-xl overflow-hidden mb-6">
+        <div class="w-full flex items-center gap-3 p-4 border-b" style="border-color: var(--border-color);">
+            <svg class="w-5 h-5" style="color: var(--accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
+            </svg>
+            <div>
+                <h2 class="font-semibold">qBittorrent</h2>
+                <p class="text-xs" style="color: var(--text-secondary);">Download client connection</p>
+            </div>
+        </div>
+        <div class="p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                        Host
+                    </label>
+                    <input id="qbit-host" type="text" placeholder="localhost"
+                           class="w-full px-3 py-2 rounded-lg text-sm border"
+                           style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                        Port
+                    </label>
+                    <input id="qbit-port" type="number" placeholder="8080"
+                           class="w-full px-3 py-2 rounded-lg text-sm border"
+                           style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                        Username
+                    </label>
+                    <input id="qbit-username" type="text" placeholder="admin"
+                           class="w-full px-3 py-2 rounded-lg text-sm border"
+                           style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                        Password
+                    </label>
+                    <input id="qbit-password" type="password" placeholder="Your qBittorrent password"
+                           class="w-full px-3 py-2 rounded-lg text-sm border"
+                           style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                </div>
+            </div>
+            <div class="mt-3">
+                <button onclick="saveQbitSettings()" class="px-4 py-2 rounded-lg text-sm font-medium text-white btn-primary">
+                    Save qBittorrent Settings
+                </button>
+                <button onclick="testQbitConnection()" class="ml-2 px-4 py-2 rounded-lg text-sm font-medium btn-outline">
+                    Test Connection
+                </button>
+                <div id="qbit-status" class="text-xs mt-2" style="color: var(--text-secondary);"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sport Folders -->
+    <div class="card rounded-xl overflow-hidden mb-6">
+        <div class="w-full flex items-center gap-3 p-4 border-b" style="border-color: var(--border-color);">
+            <svg class="w-5 h-5" style="color: var(--accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+            </svg>
+            <div>
+                <h2 class="font-semibold">Sport Folders</h2>
+                <p class="text-xs" style="color: var(--text-secondary);">Where to store downloaded games</p>
+            </div>
+        </div>
+        <div class="p-4">
+            <div class="space-y-3" id="sport-folders-container">
+                <!-- Dynamically loaded -->
+                <p class="text-sm" style="color: var(--text-secondary);">Loading folders...</p>
+            </div>
+            <button onclick="saveSportFolders()" class="mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white btn-primary">
+                Save Folders
+            </button>
+            <div id="folders-status" class="text-xs mt-2" style="color: var(--text-secondary);"></div>
+        </div>
+    </div>
+
+    <!-- Schedule Settings -->
+    <div class="card rounded-xl overflow-hidden">
+        <div class="w-full flex items-center gap-3 p-4 border-b" style="border-color: var(--border-color);">
+            <svg class="w-5 h-5" style="color: var(--accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div>
+                <h2 class="font-semibold">Search Schedule</h2>
+                <p class="text-xs" style="color: var(--text-secondary);">How often to automatically search</p>
+            </div>
+        </div>
+        <div class="p-4">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide mb-1" style="color: var(--text-secondary);">
+                    Cron Schedule
+                </label>
+                <input id="search-schedule" type="text" placeholder="0 */4 * * *"
+                       class="w-full px-3 py-2 rounded-lg text-sm border"
+                       style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+                <p class="text-xs mt-1" style="color: var(--text-secondary);">
+                    Examples: <span class="font-mono">0 */4 * * *</span> (every 4 hours), 
+                    <span class="font-mono">0 2 * * *</span> (daily at 2 AM)
+                </p>
+            </div>
+            <button onclick="saveScheduleSettings()" class="mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white btn-primary">
+                Save Schedule
+            </button>
+            <div id="schedule-status" class="text-xs mt-2" style="color: var(--text-secondary);"></div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load all settings on page load
+    window.addEventListener('DOMContentLoaded', () => {
+        loadAllSettings();
+    });
+
+    async function loadAllSettings() {
+        try {
+            const res = await fetch('/api/settings');
+            const data = await res.json();
+            
+            // TheSportsDB
+            if (data.thesportsdb_api_key) {
+                document.getElementById('thesportsdb-key').value = '••••••••';
+                document.getElementById('thesportsdb-status').innerHTML = '✅ Configured';
+                document.getElementById('thesportsdb-status').style.color = 'var(--success)';
+            }
+            
+            // Prowlarr
+            if (data.prowlarr_url) {
+                document.getElementById('prowlarr-url').value = data.prowlarr_url;
+                document.getElementById('prowlarr-status').innerHTML = '✅ Configured';
+                document.getElementById('prowlarr-status').style.color = 'var(--success)';
+            }
+            
+            // qBittorrent
+            if (data.qbit_host) {
+                document.getElementById('qbit-host').value = data.qbit_host;
+                document.getElementById('qbit-port').value = data.qbit_port || 8080;
+                document.getElementById('qbit-username').value = data.qbit_username || 'admin';
+                document.getElementById('qbit-status').innerHTML = '✅ Configured';
+                document.getElementById('qbit-status').style.color = 'var(--success)';
+            }
+            
+            // Sport Folders
+            if (data.sport_folders) {
+                renderSportFolders(data.sport_folders);
+            }
+            
+            // Schedule
+            if (data.search_schedule) {
+                document.getElementById('search-schedule').value = data.search_schedule;
+            }
+            
+        } catch (e) {
+            console.error('Failed to load settings:', e);
+        }
+    }
+
+    function renderSportFolders(folders) {
+        const container = document.getElementById('sport-folders-container');
+        const sports = ['NCAAF', 'NFL', 'MLB'];
+        
+        container.innerHTML = sports.map(sport => `
+            <div class="flex items-center gap-3">
+                <label class="text-sm font-medium w-20" style="color: var(--text-secondary);">${sport}</label>
+                <input id="folder-${sport}" type="text" placeholder="/media/Sports/${sport}"
+                       value="${folders[sport] || ''}"
+                       class="flex-1 px-3 py-2 rounded-lg text-sm border"
+                       style="background: var(--bg-primary); border-color: var(--border-color); color: var(--text-primary);">
+            </div>
+        `).join('');
+    }
+
+    async function saveSportsDbKey() {
+        const key = document.getElementById('thesportsdb-key').value;
+        const status = document.getElementById('thesportsdb-status');
+        
+        try {
+            const res = await fetch('/api/settings/thesportsdb', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: key })
+            });
+            
+            if (res.ok) {
+                status.innerHTML = '✅ Saved successfully';
+                status.style.color = 'var(--success)';
+                showToast('TheSportsDB key saved', 'success');
+            } else {
+                status.innerHTML = '❌ Failed to save';
+                status.style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            status.innerHTML = '❌ Error: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+
+    async function saveProwlarrSettings() {
+        const url = document.getElementById('prowlarr-url').value;
+        const key = document.getElementById('prowlarr-key').value;
+        const status = document.getElementById('prowlarr-status');
+        
+        try {
+            const res = await fetch('/api/settings/prowlarr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, api_key: key })
+            });
+            
+            if (res.ok) {
+                status.innerHTML = '✅ Saved successfully';
+                status.style.color = 'var(--success)';
+                showToast('Prowlarr settings saved', 'success');
+            } else {
+                status.innerHTML = '❌ Failed to save';
+                status.style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            status.innerHTML = '❌ Error: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+
+    async function saveQbitSettings() {
+        const host = document.getElementById('qbit-host').value;
+        const port = parseInt(document.getElementById('qbit-port').value);
+        const username = document.getElementById('qbit-username').value;
+        const password = document.getElementById('qbit-password').value;
+        const status = document.getElementById('qbit-status');
+        
+        try {
+            const res = await fetch('/api/settings/qbit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host, port, username, password })
+            });
+            
+            if (res.ok) {
+                status.innerHTML = '✅ Saved successfully';
+                status.style.color = 'var(--success)';
+                showToast('qBittorrent settings saved', 'success');
+            } else {
+                status.innerHTML = '❌ Failed to save';
+                status.style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            status.innerHTML = '❌ Error: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+
+    async function testQbitConnection() {
+        const status = document.getElementById('qbit-status');
+        status.innerHTML = '⏳ Testing connection...';
+        status.style.color = 'var(--text-secondary)';
+        
+        try {
+            const res = await fetch('/api/qbit/test', { method: 'POST' });
+            const data = await res.json();
+            
+            if (res.ok) {
+                status.innerHTML = '✅ ' + (data.message || 'Connection successful');
+                status.style.color = 'var(--success)';
+                showToast('qBittorrent connection OK', 'success');
+            } else {
+                status.innerHTML = '❌ ' + (data.message || 'Connection failed');
+                status.style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            status.innerHTML = '❌ Error: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+
+    async function saveSportFolders() {
+        const folders = {
+            NCAAF: document.getElementById('folder-NCAAF').value,
+            NFL: document.getElementById('folder-NFL').value,
+            MLB: document.getElementById('folder-MLB').value
+        };
+        const status = document.getElementById('folders-status');
+        
+        try {
+            const res = await fetch('/api/settings/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folders })
+            });
+            
+            if (res.ok) {
+                status.innerHTML = '✅ Saved successfully';
+                status.style.color = 'var(--success)';
+                showToast('Folders saved', 'success');
+            } else {
+                status.innerHTML = '❌ Failed to save';
+                status.style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            status.innerHTML = '❌ Error: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+
+    async function saveScheduleSettings() {
+        const schedule = document.getElementById('search-schedule').value;
+        const status = document.getElementById('schedule-status');
+        
+        try {
+            const res = await fetch('/api/settings/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schedule })
+            });
+            
+            if (res.ok) {
+                status.innerHTML = '✅ Saved successfully';
+                status.style.color = 'var(--success)';
+                showToast('Schedule saved', 'success');
+            } else {
+                status.innerHTML = '❌ Failed to save';
+                status.style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            status.innerHTML = '❌ Error: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold">Downloads</h1>
+            <p class="text-sm mt-1" style="color: var(--text-secondary);">
+                History and status of all requested downloads
+            </p>
+        </div>
+        <button onclick="refreshDownloads()" 
+                class="px-4 py-2 rounded-lg text-sm font-medium btn-outline">
+            🔄 Refresh
+        </button>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="card rounded-xl p-4 text-center">
+            <div class="text-2xl font-bold" style="color: var(--text-primary);" id="total-count">0</div>
+            <div class="text-xs uppercase tracking-wide mt-1" style="color: var(--text-secondary);">Total</div>
+        </div>
+        <div class="card rounded-xl p-4 text-center">
+            <div class="text-2xl font-bold" style="color: var(--warning);" id="wanted-count">0</div>
+            <div class="text-xs uppercase tracking-wide mt-1" style="color: var(--text-secondary);">Wanted</div>
+        </div>
+        <div class="card rounded-xl p-4 text-center">
+            <div class="text-2xl font-bold" style="color: var(--text-secondary);" id="requested-count">0</div>
+            <div class="text-xs uppercase tracking-wide mt-1" style="color: var(--text-secondary);">Requested</div>
+        </div>
+        <div class="card rounded-xl p-4 text-center">
+            <div class="text-2xl font-bold" style="color: var(--success);" id="downloaded-count">0</div>
+            <div class="text-xs uppercase tracking-wide mt-1" style="color: var(--text-secondary);">Downloaded</div>
+        </div>
+    </div>
+
+    <!-- Downloads Table -->
+    <div class="card rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <th class="text-left" style="padding: 0.75rem 1rem;">Game</th>
+                        <th class="text-left" style="padding: 0.75rem 1rem;">Sport</th>
+                        <th class="text-left" style="padding: 0.75rem 1rem;">Date</th>
+                        <th class="text-left" style="padding: 0.75rem 1rem;">Status</th>
+                        <th class="text-left" style="padding: 0.75rem 1rem;">Location</th>
+                        <th class="text-left" style="padding: 0.75rem 1rem;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="downloads-body">
+                    <tr>
+                        <td colspan="6" class="text-center py-8" style="color: var(--text-secondary);">
+                            Loading downloads...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load downloads on page load
+    window.addEventListener('DOMContentLoaded', () => {
+        loadDownloads();
+    });
+
+    async function loadDownloads() {
+        const tbody = document.getElementById('downloads-body');
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color: var(--text-secondary);">Loading...</td></tr>`;
+
+        try {
+            const res = await fetch('/api/downloads');
+            const data = await res.json();
+            
+            if (data.downloads && data.downloads.length > 0) {
+                renderDownloads(data.downloads);
+                updateStats(data.downloads);
+            } else {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color: var(--text-secondary);">No downloads yet. Select games from the Schedule page.</td></tr>`;
+            }
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color: var(--danger);">Failed to load downloads</td></tr>`;
+        }
+    }
+
+    function renderDownloads(downloads) {
+        const tbody = document.getElementById('downloads-body');
+        
+        tbody.innerHTML = downloads.map(d => {
+            const statusHtml = getStatusBadge(d.status);
+            const location = d.copied_path || d.download_path || '-';
+            const actionHtml = getActionButton(d);
+            
+            return `
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 0.75rem 1rem;">
+                        <span class="font-medium">${d.home_team} vs ${d.away_team}</span>
+                    </td>
+                    <td style="padding: 0.75rem 1rem;">${d.sport || '-'}</td>
+                    <td style="padding: 0.75rem 1rem;">${d.event_date || '-'}</td>
+                    <td style="padding: 0.75rem 1rem;">${statusHtml}</td>
+                    <td style="padding: 0.75rem 1rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem;" title="${location}">
+                        ${location}
+                    </td>
+                    <td style="padding: 0.75rem 1rem;">${actionHtml}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function getStatusBadge(status) {
+        const map = {
+            'wanted': `<span class="badge-wanted px-2 py-1 rounded text-xs">⏳ Wanted</span>`,
+            'requested': `<span class="badge-requested px-2 py-1 rounded text-xs">⏳ Requested</span>`,
+            'downloaded': `<span class="badge-downloaded px-2 py-1 rounded text-xs">✅ Downloaded</span>`,
+            'failed': `<span class="px-2 py-1 rounded text-xs" style="background: var(--danger-bg); color: var(--danger);">❌ Failed</span>`
+        };
+        return map[status] || map['wanted'];
+    }
+
+    function getActionButton(d) {
+        if (d.status === 'downloaded' && d.copied_path) {
+            return `<button onclick="openFolder('${d.copied_path}')" 
+                           class="px-2 py-1 rounded text-xs btn-outline">
+                        📂 Open
+                    </button>`;
+        }
+        if (d.status === 'wanted') {
+            return `<button onclick="searchNow(${d.id})" 
+                           class="px-2 py-1 rounded text-xs btn-primary">
+                        🔍 Search Now
+                    </button>`;
+        }
+        if (d.status === 'requested') {
+            return `<span class="text-xs" style="color: var(--text-secondary);">⏳ In progress...</span>`;
+        }
+        return '-';
+    }
+
+    function updateStats(downloads) {
+        const total = downloads.length;
+        const wanted = downloads.filter(d => d.status === 'wanted').length;
+        const requested = downloads.filter(d => d.status === 'requested').length;
+        const downloaded = downloads.filter(d => d.status === 'downloaded').length;
+        
+        document.getElementById('total-count').textContent = total;
+        document.getElementById('wanted-count').textContent = wanted;
+        document.getElementById('requested-count').textContent = requested;
+        document.getElementById('downloaded-count').textContent = downloaded;
+    }
+
+    function refreshDownloads() {
+        loadDownloads();
+        showToast('Refreshed', 'info');
+    }
+
+    async function searchNow(gameId) {
+        try {
+            const res = await fetch(`/api/search/${gameId}`, { method: 'POST' });
+            const data = await res.json();
+            
+            if (res.ok) {
+                showToast('Search started', 'success');
+                setTimeout(loadDownloads, 3000);
+            } else {
+                showToast(data.message || 'Search failed', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    function openFolder(path) {
+        // This is a placeholder - actual implementation would depend on the OS
+        // For now, just copy the path to clipboard
+        navigator.clipboard.writeText(path).then(() => {
+            showToast('Path copied to clipboard', 'info');
+        });
+    }
+</script>
+{% endblock %}
