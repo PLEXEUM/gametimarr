@@ -1,0 +1,14 @@
+services:
+  gametimarr:
+    build: .
+    container_name: gametimarr
+    ports:
+      - "7227:7227"
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - /path/to/your/media:/media/sports  # Adjust this path
+    environment:
+      - TZ=America/New_York
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
