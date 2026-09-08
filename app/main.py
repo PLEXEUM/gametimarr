@@ -10,7 +10,7 @@ from datetime import datetime
 
 from app.utils.logger import setup_logger, get_logger
 from app.utils.database import init_db, get_connection, get_setting, set_setting
-from app.core.espn import ESPNClient
+from app.core.espn_scraper import ESPNScraper
 from app.core.prowlarr import ProwlarrClient
 from app.core.jackett import JackettClient
 from app.core.qbittorrent import QBittorrentClient
@@ -60,7 +60,7 @@ async def index(request: Request):
 
 @app.get("/api/schedule")
 async def get_schedule(sport: str = "NCAAF", year: int = 2026):
-    """Get schedule for a sport and year from ESPN API."""
+    """Get schedule for a sport and year from ESPN scraper."""
     conn = get_connection()
     
     # Try to get from database first
@@ -89,12 +89,12 @@ async def get_schedule(sport: str = "NCAAF", year: int = 2026):
                 "time": row["time"],
                 "home": row["home"],
                 "away": row["away"],
-                "status": row["status"],  # Scheduled, Completed, Postponed
-                "user_status": row["user_status"]  # wanted, requested, downloaded
+                "status": row["status"],
+                "user_status": row["user_status"]
             })
         return result
     
-    # No data - sync from ESPN
+    # No data - sync from ESPN scraper
     await sync_sport_from_espn(sport, year)
     
     # Try again after sync
@@ -132,8 +132,8 @@ async def get_schedule(sport: str = "NCAAF", year: int = 2026):
 
 
 async def sync_sport_from_espn(sport_slug: str, year: int):
-    """Sync a sport from ESPN API."""
-    logger.info(f"Syncing {sport_slug} for {year} from ESPN...")
+    """Sync a sport from ESPN scraper."""
+    logger.info(f"Syncing {sport_slug} for {year} from ESPN scraper...")
     
     # Get or create sport
     conn = get_connection()
@@ -151,9 +151,9 @@ async def sync_sport_from_espn(sport_slug: str, year: int):
     else:
         sport_id = sport["id"]
     
-    # Fetch events from ESPN
-    client = ESPNClient()
-    events = await client.get_events(sport_slug, year)
+    # Fetch events from ESPN scraper
+    scraper = ESPNScraper()
+    events = await scraper.get_events(sport_slug)
     
     events_added = 0
     for event in events:
@@ -162,7 +162,6 @@ async def sync_sport_from_espn(sport_slug: str, year: int):
         event_date = event.get("date")
         event_time = event.get("time")
         status = event.get("status", "Scheduled")
-        external_id = event.get("external_id")
         
         if not home_name or not away_name or not event_date:
             continue
@@ -200,9 +199,9 @@ async def sync_sport_from_espn(sport_slug: str, year: int):
         # Insert or update game
         conn.execute(
             """INSERT OR REPLACE INTO games
-               (sport_id, home_team_id, away_team_id, event_date, event_time, year, external_id, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (sport_id, home_id, away_id, event_date, event_time, year, external_id, status)
+               (sport_id, home_team_id, away_team_id, event_date, event_time, year, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (sport_id, home_id, away_id, event_date, event_time, year, status)
         )
         events_added += 1
     
@@ -386,7 +385,7 @@ async def test_qbit():
 
 @app.post("/api/sync/{sport}")
 async def sync_sport(sport: str, year: int = 2026):
-    """Force sync a sport from ESPN."""
+    """Force sync a sport from ESPN scraper."""
     await sync_sport_from_espn(sport, year)
     return {"success": True, "message": f"Synced {sport} for {year}"}
 
