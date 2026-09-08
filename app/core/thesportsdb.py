@@ -71,7 +71,7 @@ class TheSportsDBClient:
                     (sport_slug, sport_name)
                 )
                 conn.commit()
-                sport_id = cursor.lastrowid
+                sport_id = result.lastrowid
             else:
                 sport_id = sport["id"]
 
