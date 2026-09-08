@@ -98,7 +98,6 @@
                         <th></th>
                         <th>Away</th>
                         <th>Status</th>
-                        <th>User Status</th>
                     </tr>
                 </thead>
                 <tbody id="schedule-body">
@@ -275,7 +274,6 @@ function renderSchedule(games) {
             <td class="text-slate-500 text-sm">vs</td>
             <td class="font-medium">${g.away}</td>
             <td>${statusBadge(g.status)}</td>
-            <td>${userStatusBadge(g.user_status)}</td>
         </tr>
     `).join('');
 }
@@ -284,12 +282,6 @@ function statusBadge(status) {
     const labels = { 'Scheduled': '📅 Scheduled', 'Completed': '✅ Completed', 'Postponed': '⏳ Postponed', 'Canceled': '❌ Canceled' };
     const classes = { 'Scheduled': 'badge-scheduled', 'Completed': 'badge-completed', 'Postponed': 'badge-postponed', 'Canceled': 'badge-postponed' };
     return `<span class="${classes[status] || 'badge-scheduled'}">${labels[status] || status}</span>`;
-}
-
-function userStatusBadge(status) {
-    const labels = { wanted: '⬜ Wanted', requested: '⏳ Searching', downloaded: '✅ Downloaded' };
-    const classes = { wanted: 'badge-wanted', requested: 'badge-requested', downloaded: 'badge-downloaded' };
-    return `<span class="${classes[status] || 'badge-wanted'}">${labels[status] || 'Wanted'}</span>`;
 }
 
 function filterGames() { renderSchedule(currentGames); }
