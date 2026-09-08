@@ -40,10 +40,9 @@ class ESPNScraper:
             async with httpx.AsyncClient(
                 timeout=30,
                 follow_redirects=True,
-                headers=headers,
-                http2=True
+                headers=headers
+                # http2=True removed
             ) as client:
-                # First, visit the main page to get cookies
                 response = await client.get(url)
                 response.raise_for_status()
                 return response.text
