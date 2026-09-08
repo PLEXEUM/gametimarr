@@ -3,11 +3,11 @@ services:
     build: .
     container_name: gametimarr
     ports:
-      - "7227:7227"
+      - "7667:7667"  # Changed from 7227 to 7667
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs
-      - /path/to/your/media:/media/sports  # CHANGE THIS to your media path
+      - /path/to/your/media:/media/sports
     environment:
       - TZ=America/New_York
       - LOG_LEVEL=INFO

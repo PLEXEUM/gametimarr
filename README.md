@@ -31,7 +31,7 @@ cd gametimarr
 docker-compose up -d
 
 # Open the web UI
-# → http://localhost:7227
+# → http://localhost:7667
 ```
 
 ### Docker Run
