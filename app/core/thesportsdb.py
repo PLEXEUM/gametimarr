@@ -6,6 +6,13 @@ from app.utils.database import get_connection, get_setting
 logger = get_logger()
 BASE_URL = "https://www.thesportsdb.com/api/v1/json"
 
+# Known league IDs for our supported sports
+LEAGUE_IDS = {
+    "NCAAF": "4479",
+    "NFL": "4391",
+    "MLB": "4424"
+}
+
 
 class TheSportsDBClient:
     def __init__(self):
@@ -66,52 +73,37 @@ class TheSportsDBClient:
             ).fetchone()
 
             if not sport:
-                conn.execute(
+                cursor = conn.execute(
                     "INSERT INTO sports (slug, name) VALUES (?, ?)",
                     (sport_slug, sport_name)
                 )
                 conn.commit()
-                sport_id = result.lastrowid
+                sport_id = cursor.lastrowid  # ← FIXED: use cursor.lastrowid
             else:
                 sport_id = sport["id"]
 
-            # Get leagues for this sport
-            leagues = await self.get_leagues(sport_name)
-            league_matches = 0
+            # Get the known league ID for this sport
+            league_id = LEAGUE_IDS.get(sport_slug)
+            if not league_id:
+                return {"success": False, "error": f"No league ID for {sport_slug}"}
 
-            for league in leagues:
-                league_id = league.get("idLeague")
-                league_name = league.get("strLeague")
-                
-                if not league_id or not league_name:
-                    continue
-
-                # Check if this league matches our target sport
-                if sport_name.lower() not in league.get("strSport", "").lower():
-                    continue
-
-                # Skip if not a major US sport
-                if sport_slug == "NCAAF" and "NCAA" not in league_name:
-                    continue
-                if sport_slug == "NFL" and "NFL" not in league_name and "National Football" not in league_name:
-                    continue
-                if sport_slug == "MLB" and "MLB" not in league_name and "Major League" not in league_name:
-                    continue
-
-                # Get teams for this league
-                teams = await self.get_teams(league_id)
-                for team in teams:
-                    team_name = team.get("strTeam")
-                    if team_name:
-                        conn.execute(
-                            """INSERT OR IGNORE INTO teams (name, sport_id, external_id)
-                               VALUES (?, ?, ?)""",
-                            (team_name, sport_id, team.get("idTeam"))
-                        )
-                conn.commit()
-                league_matches += 1
-
-            return {"success": True, "leagues_found": league_matches}
+            # Get teams for this league directly
+            teams = await self.get_teams(league_id)
+            team_count = 0
+            
+            for team in teams:
+                team_name = team.get("strTeam")
+                if team_name:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO teams (name, sport_id, external_id)
+                           VALUES (?, ?, ?)""",
+                        (team_name, sport_id, team.get("idTeam"))
+                    )
+                    team_count += 1
+            
+            conn.commit()
+            logger.info(f"Synced {team_count} teams for {sport_slug}")
+            return {"success": True, "teams_found": team_count}
 
         except Exception as e:
             logger.error(f"Failed to sync sport {sport_slug}: {e}")
@@ -120,7 +112,7 @@ class TheSportsDBClient:
             conn.close()
 
     async def sync_events(self, sport_slug: str, year: int) -> dict:
-        """Sync events for a sport and year."""
+        """Sync events for a sport and year using known league IDs."""
         if not self.is_configured():
             return {"success": False, "error": "API key not configured"}
 
@@ -135,53 +127,47 @@ class TheSportsDBClient:
 
             sport_id = sport["id"]
 
-            # Get leagues for this sport
-            leagues = conn.execute(
-                """SELECT id, external_id FROM teams 
-                   WHERE sport_id = ? GROUP BY external_id""",
-                (sport_id,)
-            ).fetchall()
+            # Use known league ID directly
+            league_id = LEAGUE_IDS.get(sport_slug)
+            if not league_id:
+                return {"success": False, "error": f"No league ID for {sport_slug}"}
 
+            events = await self.get_events_by_league(league_id, str(year))
             events_added = 0
-            for league in leagues:
-                if not league["external_id"]:
+
+            for event in events:
+                home_team = event.get("strHomeTeam")
+                away_team = event.get("strAwayTeam")
+                event_date = event.get("dateEvent")
+                event_time = event.get("strTime") or event.get("strTimeLocal") or ""
+
+                if not home_team or not away_team or not event_date:
                     continue
 
-                events = await self.get_events_by_league(league["external_id"], str(year))
+                # Get team IDs
+                home = conn.execute(
+                    "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
+                    (home_team, sport_id)
+                ).fetchone()
+                away = conn.execute(
+                    "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
+                    (away_team, sport_id)
+                ).fetchone()
 
-                for event in events:
-                    home_team = event.get("strHomeTeam")
-                    away_team = event.get("strAwayTeam")
-                    event_date = event.get("dateEvent")
-                    event_time = event.get("strTime") or event.get("strTimeLocal") or ""
+                if not home or not away:
+                    continue
 
-                    if not home_team or not away_team or not event_date:
-                        continue
+                # Insert or update game
+                conn.execute(
+                    """INSERT OR REPLACE INTO games 
+                       (sport_id, home_team_id, away_team_id, event_date, event_time, year, external_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (sport_id, home["id"], away["id"], event_date, event_time, year, event.get("idEvent"))
+                )
+                events_added += 1
 
-                    # Get team IDs
-                    home = conn.execute(
-                        "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
-                        (home_team, sport_id)
-                    ).fetchone()
-                    away = conn.execute(
-                        "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
-                        (away_team, sport_id)
-                    ).fetchone()
-
-                    if not home or not away:
-                        continue
-
-                    # Insert or update game
-                    conn.execute(
-                        """INSERT OR REPLACE INTO games 
-                           (sport_id, home_team_id, away_team_id, event_date, event_time, year, external_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (sport_id, home["id"], away["id"], event_date, event_time, year, event.get("idEvent"))
-                    )
-                    events_added += 1
-
-                conn.commit()
-
+            conn.commit()
+            logger.info(f"Synced {events_added} events for {sport_slug} {year}")
             return {"success": True, "events_added": events_added}
 
         except Exception as e:
