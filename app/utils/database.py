@@ -32,6 +32,7 @@ def init_db():
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             sport_id INTEGER,
+            external_id TEXT, 
             FOREIGN KEY (sport_id) REFERENCES sports(id)
         );
 
