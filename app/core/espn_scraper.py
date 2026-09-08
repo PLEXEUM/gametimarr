@@ -8,9 +8,9 @@ logger = get_logger()
 
 # TeamRankings schedule URLs
 SPORT_URLS = {
-    "NCAAF": "https://www.teamrankings.com/ncf/schedules/season/?week=0",
-    "NFL": "https://www.teamrankings.com/nfl/schedules/season/?week=0",
-    "MLB": "https://www.teamrankings.com/mlb/schedules/season/?week=0"
+    "NCAAF": "https://www.teamrankings.com/ncf/schedules/season/",
+    "NFL": "https://www.teamrankings.com/nfl/schedules/season/",
+    "MLB": "https://www.teamrankings.com/mlb/schedules/season/"
 }
 
 
