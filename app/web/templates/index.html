@@ -268,7 +268,7 @@ function renderSchedule(games) {
     
     document.getElementById('schedule-body').innerHTML = filtered.map(g => `
         <tr>
-            <td><input type="checkbox" class="game-cb" data-id="${g.id}" ${g.user_status === 'downloaded' ? 'disabled' : ''} ${g.user_status === 'wanted' ? 'checked' : ''}></td>
+            <td><input type="checkbox" class="game-cb" data-id="${g.id}" ${g.user_status === 'downloaded' ? 'disabled' : ''} ${g.user_status === 'requested' || g.user_status === 'downloaded' ? 'checked' : ''}></td>
             <td>${g.date}</td>
             <td>${g.time || '-'}</td>
             <td class="font-medium">${g.home}</td>

@@ -56,7 +56,6 @@ class ESPNScraper:
             if game["date"]:
                 try:
                     game_date = datetime.strptime(game["date"], "%Y-%m-%d").date()
-                    # Keep games from season start to today + 30 days
                     if game_date <= max_date:
                         filtered.append(game)
                 except ValueError:
@@ -73,16 +72,13 @@ class ESPNScraper:
         games = []
         current_date = None
 
-        # Find the main table
         table = soup.find("table", class_="tr-table")
         if not table:
             logger.error("Could not find schedule table")
             return games
 
-        # Find all thead sections (each contains a date header)
         theads = table.find_all("thead")
         for thead in theads:
-            # Get the date from the th
             date_th = thead.find("th")
             if date_th:
                 date_text = date_th.get_text(strip=True)
@@ -90,12 +86,10 @@ class ESPNScraper:
                 if not current_date:
                     continue
 
-            # Find the tbody that follows this thead
             tbody = thead.find_next_sibling("tbody")
             if not tbody:
                 continue
 
-            # Parse each game row
             for row in tbody.find_all("tr"):
                 game = self._parse_game_row_teamrankings(row, current_date, sport_slug)
                 if game:
@@ -104,11 +98,9 @@ class ESPNScraper:
         return games
 
     def _parse_date_teamrankings(self, date_text: str) -> str:
-        """Parse date from TeamRankings format: 'Thu Sep 10'."""
+        """Parse date from TeamRankings format: 'Wed Mar 25'."""
         try:
-            # Remove day of week (e.g., "Thu ")
             date_text = re.sub(r'^[A-Za-z]{3}\s+', '', date_text)
-            # Add current year (TeamRankings doesn't include year in header)
             current_year = datetime.now().year
             date_str = f"{date_text} {current_year}"
             dt = datetime.strptime(date_str, "%b %d %Y")
@@ -124,12 +116,10 @@ class ESPNScraper:
             if len(cols) < 3:
                 return None
 
-            # Column 0: Teams (e.g., "Florida A&M @ Miami")
             teams_text = cols[0].get_text(strip=True)
             if not teams_text or " vs " not in teams_text and " @ " not in teams_text:
                 return None
 
-            # Parse teams
             if " @ " in teams_text:
                 away_team, home_team = teams_text.split(" @ ", 1)
             elif " vs " in teams_text:
@@ -137,14 +127,11 @@ class ESPNScraper:
             else:
                 return None
 
-            # Column 1: Time (e.g., "8:00 PM")
             time = cols[1].get_text(strip=True) if len(cols) > 1 else ""
-
-            # Column 2: Location (e.g., "Hard Rock Stadium")
             location = cols[2].get_text(strip=True) if len(cols) > 2 else ""
 
-            # Determine status
-            status = self._get_game_status(row, sport_slug)
+            # Determine status based on date
+            status = self._determine_status_by_date(date)
 
             return {
                 "home_team": home_team.strip(),
@@ -159,34 +146,19 @@ class ESPNScraper:
             logger.error(f"Error parsing game row: {e}")
             return None
 
-    def _get_game_status(self, row: BeautifulSoup, sport_slug: str) -> str:
-        """Determine game status from row context."""
-        # Check for status indicators in the row
-        row_text = row.get_text().lower()
-
-        # Look for common status indicators
-        if "final" in row_text:
-            return "Completed"
-        if "postponed" in row_text:
-            return "Postponed"
-        if "canceled" in row_text or "cancelled" in row_text:
-            return "Canceled"
-        if "scheduled" in row_text:
+    def _determine_status_by_date(self, date_str: str) -> str:
+        """Determine game status based on date."""
+        if not date_str:
             return "Scheduled"
 
-        # Check for score indicators (e.g., "24-21")
-        # TeamRankings may show scores for completed games
-        if re.search(r'\d+\s*-\s*\d+', row_text):
-            # This likely means the game has a score (completed)
-            return "Completed"
+        try:
+            game_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            today = datetime.now().date()
 
-        # Check if there's a result link with score
-        score_link = row.find("a", href=re.compile(r"/college-football/matchup/"))
-        if score_link:
-            # Check if the link text contains a score or "Final"
-            link_text = score_link.get_text().lower()
-            if "final" in link_text or re.search(r'\d+\s*-\s*\d+', link_text):
+            if game_date < today:
                 return "Completed"
+            else:
+                return "Scheduled"
 
-        # Default to Scheduled if no indicators found
-        return "Scheduled"
+        except ValueError:
+            return "Scheduled"
