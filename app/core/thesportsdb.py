@@ -56,9 +56,34 @@ class TheSportsDBClient:
         return data.get("teams", [])
 
     async def get_events_by_league(self, league_id: str, season: str) -> list:
-        """Get events for a league and season."""
-        data = await self._request(f"eventsseason.php?id={league_id}&s={season}")
-        return data.get("events", [])
+        """Get events for a league - future + recent past from current season."""
+        all_events = []
+        seen = set()
+        
+        # 1. Get future events (all upcoming)
+        logger.info(f"Fetching future events for league {league_id}")
+        future_data = await self._request(f"eventsnextleague.php?id={league_id}")
+        future_events = future_data.get("events", [])
+        for event in future_events:
+            event_id = event.get("idEvent")
+            if event_id and event_id not in seen:
+                seen.add(event_id)
+                all_events.append(event)
+        logger.info(f"Found {len(future_events)} future events")
+        
+        # 2. Get past events from current season (most recent)
+        logger.info(f"Fetching recent past events for league {league_id}, season {season}")
+        season_data = await self._request(f"eventsseason.php?id={league_id}&s={season}")
+        season_events = season_data.get("events", [])
+        for event in season_events:
+            event_id = event.get("idEvent")
+            if event_id and event_id not in seen:
+                seen.add(event_id)
+                all_events.append(event)
+        logger.info(f"Found {len(season_events)} recent past events")
+        
+        logger.info(f"Total events combined: {len(all_events)}")
+        return all_events
 
     async def sync_sport(self, sport_slug: str, sport_name: str) -> dict:
         """Sync a specific sport and its data."""
