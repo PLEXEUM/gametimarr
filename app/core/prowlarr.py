@@ -112,3 +112,41 @@ class ProwlarrClient:
             return guid
         
         return ""
+
+    async def test_connection(self, url: str = None, api_key: str = None) -> dict:
+        """
+        Test the Prowlarr connection.
+        
+        Args:
+            url: Prowlarr URL (optional, uses saved if not provided)
+            api_key: Prowlarr API key (optional, uses saved if not provided)
+        
+        Returns:
+            dict with success and message
+        """
+        # Use provided values or fall back to saved settings
+        test_url = url or self.base_url
+        test_key = api_key or self.api_key
+        
+        if not test_url or not test_key:
+            return {"success": False, "message": "URL and API key are required"}
+        
+        try:
+            url = test_url.rstrip("/") + "/api/v1/system/status"
+            headers = {"X-Api-Key": test_key}
+            
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                
+                version = data.get("version", "unknown")
+                return {"success": True, "message": f"Connected to Prowlarr v{version}"}
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                return {"success": False, "message": "Authentication failed (check API key)"}
+            return {"success": False, "message": f"Server error: {e.response.status_code}"}
+        except httpx.ConnectError:
+            return {"success": False, "message": "Could not reach server (check URL)"}
+        except Exception as e:
+            return {"success": False, "message": str(e)}

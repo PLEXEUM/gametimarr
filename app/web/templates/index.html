@@ -127,20 +127,23 @@
                     <input id="prowlarr-key" type="password" placeholder="API key" class="w-full">
                 </div>
             </div>
+            <div class="mt-2">
+                <button onclick="testProwlarr()" class="btn-outline text-sm">Test Connection</button>
+                <span id="prowlarr-test-status" class="text-sm text-slate-400 ml-2"></span>
+            </div>
         </div>
 
-        <!-- Jackett -->
+        <!-- Jackett (Torznab) -->
         <div class="border-t border-slate-700 pt-3 mt-3">
-            <h4 class="font-medium text-indigo-400 text-sm">🔎 Jackett (Alternative)</h4>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
-                <div>
-                    <label class="text-xs text-slate-400 block mb-1">URL</label>
-                    <input id="jackett-url" type="text" placeholder="http://localhost:9117" class="w-full">
-                </div>
-                <div>
-                    <label class="text-xs text-slate-400 block mb-1">API Key</label>
-                    <input id="jackett-key" type="password" placeholder="API key" class="w-full">
-                </div>
+            <h4 class="font-medium text-indigo-400 text-sm">🔎 Jackett (Torznab)</h4>
+            <div class="mt-2">
+                <label class="text-xs text-slate-400 block mb-1">Torznab URL</label>
+                <input id="jackett-torznab-url" type="text" placeholder="http://localhost:9117/api/v2.0/indexers/all/results/torznab/?apikey=YOUR_KEY" class="w-full">
+                <p class="text-xs text-slate-500 mt-1">Copy the Torznab feed URL from Jackett (includes the API key)</p>
+            </div>
+            <div class="mt-2">
+                <button onclick="testJackett()" class="btn-outline text-sm">Test Connection</button>
+                <span id="jackett-test-status" class="text-sm text-slate-400 ml-2"></span>
             </div>
         </div>
 
@@ -342,7 +345,7 @@ function loadSettings() {
         .then(data => {
             document.getElementById('prowlarr-url').value = data.prowlarr_url || '';
             document.getElementById('prowlarr-key').value = data.prowlarr_api_key || '';
-            document.getElementById('jackett-url').value = data.jackett_url || '';
+            document.getElementById('jackett-torznab-url').value = data.jackett_torznab_url || '';
             document.getElementById('jackett-key').value = data.jackett_api_key || '';
             document.getElementById('qbit-host').value = data.qbit_host || 'localhost';
             document.getElementById('qbit-port').value = data.qbit_port || '8080';
@@ -369,8 +372,7 @@ function saveSettings() {
     const payload = {
         prowlarr_url: document.getElementById('prowlarr-url').value,
         prowlarr_api_key: document.getElementById('prowlarr-key').value,
-        jackett_url: document.getElementById('jackett-url').value,
-        jackett_api_key: document.getElementById('jackett-key').value,
+        jackett_torznab_url: document.getElementById('jackett-torznab-url').value,
         qbit_host: document.getElementById('qbit-host').value,
         qbit_port: document.getElementById('qbit-port').value,
         qbit_username: document.getElementById('qbit-user').value,
@@ -391,6 +393,67 @@ function saveSettings() {
         else showToast('Failed to save settings', 'error');
     })
     .catch(() => showToast('Error saving settings', 'error'));
+}
+
+// ============ TEST PROWLARR ============
+async function testProwlarr() {
+    const status = document.getElementById('prowlarr-test-status');
+    status.textContent = '⏳ Testing...';
+    
+    const url = document.getElementById('prowlarr-url').value;
+    const apiKey = document.getElementById('prowlarr-key').value;
+    
+    try {
+        const res = await fetch('/api/prowlarr/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, api_key: apiKey })
+        });
+        const data = await res.json();
+        if (data.success) {
+            status.textContent = '✅ ' + (data.message || 'Connected');
+            status.style.color = 'var(--success)';
+        } else {
+            status.textContent = '❌ ' + (data.message || 'Connection failed');
+            status.style.color = 'var(--danger)';
+        }
+    } catch (e) {
+        status.textContent = '❌ Error: ' + e.message;
+        status.style.color = 'var(--danger)';
+    }
+}
+
+// ============ TEST JACKETT (TORZNAB) ============
+async function testJackett() {
+    const status = document.getElementById('jackett-test-status');
+    status.textContent = '⏳ Testing...';
+    
+    const torznabUrl = document.getElementById('jackett-torznab-url').value;
+    
+    if (!torznabUrl) {
+        status.textContent = '❌ Please enter a Torznab URL';
+        status.style.color = 'var(--danger)';
+        return;
+    }
+    
+    try {
+        const res = await fetch('/api/jackett/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ torznab_url: torznabUrl })
+        });
+        const data = await res.json();
+        if (data.success) {
+            status.textContent = '✅ ' + (data.message || 'Connected');
+            status.style.color = 'var(--success)';
+        } else {
+            status.textContent = '❌ ' + (data.message || 'Connection failed');
+            status.style.color = 'var(--danger)';
+        }
+    } catch (e) {
+        status.textContent = '❌ Error: ' + e.message;
+        status.style.color = 'var(--danger)';
+    }
 }
 
 async function testQbit() {

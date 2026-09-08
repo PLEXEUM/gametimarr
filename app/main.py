@@ -35,6 +35,12 @@ start_scheduler()
 class SearchRequest(BaseModel):
     game_ids: List[int]
 
+class ProwlarrTestRequest(BaseModel):
+    url: str
+    api_key: str
+
+class JackettTestRequest(BaseModel):
+    torznab_url: str
 
 class SettingsRequest(BaseModel):
     thesportsdb_api_key: Optional[str] = None  # Kept for backward compatibility
@@ -380,6 +386,72 @@ async def test_qbit():
     result = await qbit.test_connection()
     return result
 
+# ============ API - PROWLARR TEST ============
+
+@app.post("/api/prowlarr/test")
+async def test_prowlarr(data: ProwlarrTestRequest):
+    """Test Prowlarr connection."""
+    if not data.url or not data.api_key:
+        return {"success": False, "message": "URL and API key are required"}
+    
+    import httpx
+    try:
+        url = data.url.rstrip("/") + "/api/v1/system/status"
+        headers = {"X-Api-Key": data.api_key}
+        
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            json_data = response.json()
+            
+            version = json_data.get("version", "unknown")
+            return {"success": True, "message": f"Connected to Prowlarr v{version}"}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return {"success": False, "message": "Authentication failed (check API key)"}
+        return {"success": False, "message": f"Server error: {e.response.status_code}"}
+    except httpx.ConnectError:
+        return {"success": False, "message": "Could not reach server (check URL)"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+# ============ API - JACKETT (TORZNAB) TEST ============
+
+@app.post("/api/jackett/test")
+async def test_jackett(data: JackettTestRequest):
+    """Test Jackett Torznab connection."""
+    if not data.torznab_url:
+        return {"success": False, "message": "Torznab URL is required"}
+    
+    import httpx
+    try:
+        # Add a test query to the URL
+        url = data.torznab_url
+        if "?" in url:
+            url += "&t=search&q=test&limit=1"
+        else:
+            url += "?t=search&q=test&limit=1"
+        
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            
+            # Check if it looks like a valid Torznab response (XML with RSS)
+            text = response.text.lower()
+            if "rss" in text and "item" in text:
+                return {"success": True, "message": "Connected to Jackett (Torznab)"}
+            elif "error" in text:
+                return {"success": False, "message": "Authentication failed (check API key)"}
+            else:
+                return {"success": True, "message": "Connected to Jackett (Torznab)"}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return {"success": False, "message": "Authentication failed (check API key)"}
+        return {"success": False, "message": f"Server error: {e.response.status_code}"}
+    except httpx.ConnectError:
+        return {"success": False, "message": "Could not reach server (check URL)"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 # ============ API - FORCE SYNC ============
 
