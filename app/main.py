@@ -6,10 +6,11 @@ from typing import List, Optional
 import os
 import json
 import asyncio
+from datetime import datetime
 
 from app.utils.logger import setup_logger, get_logger
 from app.utils.database import init_db, get_connection, get_setting, set_setting
-from app.core.thesportsdb import TheSportsDBClient
+from app.core.espn import ESPNClient
 from app.core.prowlarr import ProwlarrClient
 from app.core.jackett import JackettClient
 from app.core.qbittorrent import QBittorrentClient
@@ -36,7 +37,7 @@ class SearchRequest(BaseModel):
 
 
 class SettingsRequest(BaseModel):
-    thesportsdb_api_key: Optional[str] = None
+    thesportsdb_api_key: Optional[str] = None  # Kept for backward compatibility
     prowlarr_url: Optional[str] = None
     prowlarr_api_key: Optional[str] = None
     qbit_host: Optional[str] = None
@@ -59,14 +60,15 @@ async def index(request: Request):
 
 @app.get("/api/schedule")
 async def get_schedule(sport: str = "NCAAF", year: int = 2026):
-    """Get schedule for a sport and year."""
+    """Get schedule for a sport and year from ESPN API."""
     conn = get_connection()
     
     # Try to get from database first
     games = conn.execute("""
         SELECT g.id, g.event_date as date, g.event_time as time,
                h.name as home, a.name as away,
-               COALESCE(ug.status, 'wanted') as status
+               g.status,
+               COALESCE(ug.status, 'wanted') as user_status
         FROM games g
         JOIN teams h ON g.home_team_id = h.id
         JOIN teams a ON g.away_team_id = a.id
@@ -79,61 +81,134 @@ async def get_schedule(sport: str = "NCAAF", year: int = 2026):
     conn.close()
     
     if games:
-        return [dict(row) for row in games]
+        result = []
+        for row in games:
+            result.append({
+                "id": row["id"],
+                "date": row["date"],
+                "time": row["time"],
+                "home": row["home"],
+                "away": row["away"],
+                "status": row["status"],  # Scheduled, Completed, Postponed
+                "user_status": row["user_status"]  # wanted, requested, downloaded
+            })
+        return result
     
-    # No data yet - check if TheSportsDB is configured and try to sync
-    tsdb = TheSportsDBClient()
-    if tsdb.is_configured():
-        logger.info(f"Syncing {sport} for {year} from TheSportsDB...")
-        # Sync sport data
-        await tsdb.sync_sport(sport, sport)
-        # Sync events
-        result = await tsdb.sync_events(sport, year)
-        if result.get("success"):
-            # Try again
-            conn = get_connection()
-            games = conn.execute("""
-                SELECT g.id, g.event_date as date, g.event_time as time,
-                       h.name as home, a.name as away,
-                       COALESCE(ug.status, 'wanted') as status
-                FROM games g
-                JOIN teams h ON g.home_team_id = h.id
-                JOIN teams a ON g.away_team_id = a.id
-                LEFT JOIN user_games ug ON g.id = ug.game_id
-                WHERE g.sport_id = (SELECT id FROM sports WHERE slug = ?)
-                AND g.year = ?
-                ORDER BY g.event_date
-            """, (sport, year)).fetchall()
-            conn.close()
-            if games:
-                return [dict(row) for row in games]
+    # No data - sync from ESPN
+    await sync_sport_from_espn(sport, year)
     
-    # Return sample data as fallback
-    return get_sample_schedule(sport, year)
+    # Try again after sync
+    conn = get_connection()
+    games = conn.execute("""
+        SELECT g.id, g.event_date as date, g.event_time as time,
+               h.name as home, a.name as away,
+               g.status,
+               COALESCE(ug.status, 'wanted') as user_status
+        FROM games g
+        JOIN teams h ON g.home_team_id = h.id
+        JOIN teams a ON g.away_team_id = a.id
+        LEFT JOIN user_games ug ON g.id = ug.game_id
+        WHERE g.sport_id = (SELECT id FROM sports WHERE slug = ?)
+        AND g.year = ?
+        ORDER BY g.event_date
+    """, (sport, year)).fetchall()
+    conn.close()
+    
+    if games:
+        result = []
+        for row in games:
+            result.append({
+                "id": row["id"],
+                "date": row["date"],
+                "time": row["time"],
+                "home": row["home"],
+                "away": row["away"],
+                "status": row["status"],
+                "user_status": row["user_status"]
+            })
+        return result
+    
+    return []
 
 
-def get_sample_schedule(sport: str, year: int):
-    """Return sample data until TheSportsDB is integrated."""
-    samples = {
-        "NCAAF": [
-            {"id": 1, "date": f"09/05/{year}", "time": "7:30 PM", "home": "Auburn", "away": "Baylor", "status": "wanted"},
-            {"id": 2, "date": f"09/05/{year}", "time": "3:30 PM", "home": "Alabama", "away": "Ohio State", "status": "wanted"},
-            {"id": 3, "date": f"09/12/{year}", "time": "8:00 PM", "home": "Texas", "away": "Oklahoma", "status": "wanted"},
-            {"id": 4, "date": f"09/12/{year}", "time": "12:00 PM", "home": "Clemson", "away": "Florida State", "status": "wanted"},
-            {"id": 5, "date": f"09/19/{year}", "time": "7:00 PM", "home": "Georgia", "away": "Tennessee", "status": "wanted"},
-        ],
-        "NFL": [
-            {"id": 101, "date": f"09/10/{year}", "time": "8:20 PM", "home": "Chiefs", "away": "Ravens", "status": "wanted"},
-            {"id": 102, "date": f"09/13/{year}", "time": "1:00 PM", "home": "Cowboys", "away": "Giants", "status": "wanted"},
-            {"id": 103, "date": f"09/13/{year}", "time": "4:25 PM", "home": "49ers", "away": "Packers", "status": "wanted"},
-        ],
-        "MLB": [
-            {"id": 201, "date": f"09/05/{year}", "time": "7:05 PM", "home": "Yankees", "away": "Red Sox", "status": "wanted"},
-            {"id": 202, "date": f"09/06/{year}", "time": "4:10 PM", "home": "Dodgers", "away": "Padres", "status": "wanted"},
-            {"id": 203, "date": f"09/07/{year}", "time": "7:15 PM", "home": "Mets", "away": "Braves", "status": "wanted"},
-        ]
-    }
-    return samples.get(sport, [])
+async def sync_sport_from_espn(sport_slug: str, year: int):
+    """Sync a sport from ESPN API."""
+    logger.info(f"Syncing {sport_slug} for {year} from ESPN...")
+    
+    # Get or create sport
+    conn = get_connection()
+    sport = conn.execute(
+        "SELECT id FROM sports WHERE slug = ?", (sport_slug,)
+    ).fetchone()
+    
+    if not sport:
+        cursor = conn.execute(
+            "INSERT INTO sports (slug, name) VALUES (?, ?)",
+            (sport_slug, sport_slug)
+        )
+        conn.commit()
+        sport_id = cursor.lastrowid
+    else:
+        sport_id = sport["id"]
+    
+    # Fetch events from ESPN
+    client = ESPNClient()
+    events = await client.get_events(sport_slug, year)
+    
+    events_added = 0
+    for event in events:
+        home_name = event.get("home_team")
+        away_name = event.get("away_team")
+        event_date = event.get("date")
+        event_time = event.get("time")
+        status = event.get("status", "Scheduled")
+        external_id = event.get("external_id")
+        
+        if not home_name or not away_name or not event_date:
+            continue
+        
+        # Get or create home team
+        home = conn.execute(
+            "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
+            (home_name, sport_id)
+        ).fetchone()
+        if not home:
+            cursor = conn.execute(
+                "INSERT INTO teams (name, sport_id) VALUES (?, ?)",
+                (home_name, sport_id)
+            )
+            conn.commit()
+            home_id = cursor.lastrowid
+        else:
+            home_id = home["id"]
+        
+        # Get or create away team
+        away = conn.execute(
+            "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
+            (away_name, sport_id)
+        ).fetchone()
+        if not away:
+            cursor = conn.execute(
+                "INSERT INTO teams (name, sport_id) VALUES (?, ?)",
+                (away_name, sport_id)
+            )
+            conn.commit()
+            away_id = cursor.lastrowid
+        else:
+            away_id = away["id"]
+        
+        # Insert or update game
+        conn.execute(
+            """INSERT OR REPLACE INTO games
+               (sport_id, home_team_id, away_team_id, event_date, event_time, year, external_id, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (sport_id, home_id, away_id, event_date, event_time, year, external_id, status)
+        )
+        events_added += 1
+    
+    conn.commit()
+    conn.close()
+    logger.info(f"Synced {events_added} events for {sport_slug}")
 
 
 # ============ API - SEARCH ============
@@ -184,7 +259,6 @@ async def search_games(request: SearchRequest):
 
 async def perform_search(games: list):
     """Perform the actual search in the background."""
-    # Try Prowlarr first, fallback to Jackett
     search_client = ProwlarrClient()
     if not search_client.is_configured():
         search_client = JackettClient()
@@ -200,8 +274,7 @@ async def perform_search(games: list):
     
     for game in games:
         try:
-            # Build search query
-            year = game["event_date"].split("/")[-1] if game["event_date"] else None
+            year = game["event_date"].split("-")[0] if game["event_date"] else None
             results = await search_client.search_sport_event(
                 game["home"], 
                 game["away"], 
@@ -209,19 +282,16 @@ async def perform_search(games: list):
             )
             
             if results:
-                # Take the first result
                 release = results[0]
                 download_url = await search_client.get_release_download_url(release)
                 
                 if download_url:
-                    # Add to qBittorrent
                     result = await qbit.add_torrent(
                         download_url,
                         label=game["sport"]
                     )
                     
                     if result.get("success"):
-                        # Update status to 'requested' with hash
                         conn = get_connection()
                         conn.execute("""
                             UPDATE user_games 
@@ -233,7 +303,6 @@ async def perform_search(games: list):
                         """, (f"{game['home']} vs {game['away']}", result.get("hash", ""), game["id"]))
                         conn.commit()
                         conn.close()
-                        
                         logger.info(f"Download started for: {game['home']} vs {game['away']}")
                     else:
                         logger.error(f"Failed to add torrent for: {game['home']} vs {game['away']}")
@@ -261,7 +330,6 @@ async def get_status():
         "SELECT COUNT(*) FROM user_games WHERE status = 'downloaded'"
     ).fetchone()[0]
     
-    # Get next scheduled run
     next_run = get_next_run_time()
     
     conn.close()
@@ -299,9 +367,7 @@ async def save_settings(data: SettingsRequest):
         if value is not None:
             set_setting(key, value)
     
-    # Restart scheduler if schedule changed
     start_scheduler()
-    
     logger.info("Settings saved")
     return {"success": True}
 
@@ -320,19 +386,9 @@ async def test_qbit():
 
 @app.post("/api/sync/{sport}")
 async def sync_sport(sport: str, year: int = 2026):
-    """Force sync a sport from TheSportsDB."""
-    tsdb = TheSportsDBClient()
-    if not tsdb.is_configured():
-        return {"success": False, "error": "TheSportsDB API key not configured"}
-    
-    # Sync sport
-    result = await tsdb.sync_sport(sport, sport)
-    if not result.get("success"):
-        return result
-    
-    # Sync events
-    result = await tsdb.sync_events(sport, year)
-    return result
+    """Force sync a sport from ESPN."""
+    await sync_sport_from_espn(sport, year)
+    return {"success": True, "message": f"Synced {sport} for {year}"}
 
 
 # ============ HEALTH ============

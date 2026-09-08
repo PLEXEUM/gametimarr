@@ -32,11 +32,11 @@ def init_db():
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             sport_id INTEGER,
-            external_id TEXT, 
+            external_id TEXT,
             FOREIGN KEY (sport_id) REFERENCES sports(id)
         );
 
-        -- Games
+        -- Games (updated with status column)
         CREATE TABLE IF NOT EXISTS games (
             id INTEGER PRIMARY KEY,
             sport_id INTEGER,
@@ -46,6 +46,7 @@ def init_db():
             event_time TEXT,
             year INTEGER,
             external_id TEXT UNIQUE,
+            status TEXT DEFAULT 'Scheduled',
             FOREIGN KEY (sport_id) REFERENCES sports(id),
             FOREIGN KEY (home_team_id) REFERENCES teams(id),
             FOREIGN KEY (away_team_id) REFERENCES teams(id)
@@ -72,20 +73,14 @@ def init_db():
 
         -- Indexes for speed
         CREATE INDEX IF NOT EXISTS idx_games_date ON games(event_date);
+        CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
         CREATE INDEX IF NOT EXISTS idx_user_games_status ON user_games(status);
     """)
 
     # Insert default settings if missing
     defaults = [
-        ('thesportsdb_api_key', ''),
-        ('prowlarr_url', ''),
-        ('prowlarr_api_key', ''),
-        ('qbit_host', 'localhost'),
-        ('qbit_port', '8080'),
-        ('qbit_username', 'admin'),
-        ('qbit_password', ''),
-        ('sport_folders', '{"NCAAF":"/media/NCAAF","NFL":"/media/NFL","MLB":"/media/MLB"}'),
         ('search_schedule', '0 */4 * * *'),
+        ('sport_folders', '{"NCAAF":"/media/NCAAF","NFL":"/media/NFL","MLB":"/media/MLB"}'),
     ]
     
     for key, value in defaults:

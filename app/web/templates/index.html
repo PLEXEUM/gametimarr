@@ -14,31 +14,25 @@
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-outline { border: 1px solid #475569; color: #94a3b8; padding: 0.5rem 1.5rem; border-radius: 0.5rem; background: transparent; }
         .btn-outline:hover { border-color: #6366f1; color: #6366f1; }
+        .badge-scheduled { background: #3b82f620; color: #60a5fa; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; }
+        .badge-completed { background: #10b98120; color: #10b981; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; }
+        .badge-postponed { background: #f59e0b20; color: #f59e0b; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; }
         .badge-wanted { background: #1e293b; color: #94a3b8; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; }
         .badge-requested { background: #f59e0b20; color: #f59e0b; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; }
         .badge-downloaded { background: #10b98120; color: #10b981; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; }
-        .badge-failed { background: #ef444420; color: #ef4444; padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; }
         input, select { background: #0f172a; border: 1px solid #334155; color: #f1f5f9; border-radius: 0.5rem; padding: 0.5rem 0.75rem; }
         input:focus, select:focus { outline: none; border-color: #6366f1; }
         .settings-collapse { display: none; }
         .settings-collapse.open { display: block; }
-        .settings-section { border-top: 1px solid #334155; padding-top: 0.75rem; margin-top: 0.75rem; }
-        .settings-section:first-child { border-top: none; padding-top: 0; margin-top: 0; }
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 0.75rem 1rem; color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #334155; }
         td { padding: 0.75rem 1rem; border-bottom: 1px solid #1e293b; }
         tr:hover td { background: #1e293b; }
-        .status-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-right: 0.5rem; }
-        .status-dot.wanted { background: #475569; }
-        .status-dot.requested { background: #f59e0b; animation: pulse 1.5s infinite; }
-        .status-dot.downloaded { background: #10b981; }
-        .status-dot.failed { background: #ef4444; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        tr.hidden-game { display: none; }
         .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: #1e293b; border: 1px solid #334155; padding: 0.75rem 1.25rem; border-radius: 0.5rem; color: #f1f5f9; z-index: 9999; animation: slideIn 0.3s ease; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        .settings-label { color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.25rem; }
-        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-        @media (max-width: 768px) { .settings-grid { grid-template-columns: 1fr; } }
+        .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.875rem; color: #94a3b8; }
+        .checkbox-label input { width: 1rem; height: 1rem; accent-color: #6366f1; }
     </style>
 </head>
 <body>
@@ -71,14 +65,18 @@
             <div>
                 <label class="text-xs text-slate-400 uppercase tracking-wide">Year</label>
                 <select id="year-select" onchange="loadSchedule()" class="w-28">
-                    <option value="2026">2026</option>
-                    <option value="2025">2025</option>
-                    <option value="2024">2024</option>
+                    <!-- Populated by JavaScript -->
                 </select>
             </div>
             <div>
                 <label class="text-xs text-slate-400 uppercase tracking-wide">Filter Team</label>
                 <input id="team-filter" type="text" placeholder="Search..." class="w-48" oninput="filterGames()">
+            </div>
+            <div class="flex items-center">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="hide-completed" onchange="filterGames()" checked>
+                    Hide Completed
+                </label>
             </div>
             <div class="flex gap-2">
                 <button onclick="searchSelected()" class="btn-primary" id="search-btn">🔍 Search Selected</button>
@@ -100,10 +98,11 @@
                         <th></th>
                         <th>Away</th>
                         <th>Status</th>
+                        <th>User Status</th>
                     </tr>
                 </thead>
                 <tbody id="schedule-body">
-                    <tr><td colspan="7" class="text-center py-8 text-slate-400">Loading schedule...</td></tr>
+                    <tr><td colspan="8" class="text-center py-8 text-slate-400">Loading schedule...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -114,65 +113,56 @@
 
     <!-- Settings (Collapsible) -->
     <div id="settings-section" class="settings-collapse card mt-4 p-4">
-        <h3 class="font-semibold mb-3 text-lg">⚙️ Settings</h3>
-
-        <!-- TheSportsDB -->
-        <div class="settings-section">
-            <h4 class="font-medium text-indigo-400 text-sm">📡 TheSportsDB</h4>
-            <div class="mt-2">
-                <label class="settings-label">API Key</label>
-                <input id="tsdb-key" type="password" placeholder="Enter your TheSportsDB API key" class="w-full">
-            </div>
-        </div>
+        <h3 class="font-semibold mb-3">⚙️ Settings</h3>
 
         <!-- Prowlarr -->
-        <div class="settings-section">
+        <div class="border-t border-slate-700 pt-3 mt-3">
             <h4 class="font-medium text-indigo-400 text-sm">🔎 Prowlarr</h4>
-            <div class="settings-grid mt-2">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
                 <div>
-                    <label class="settings-label">URL</label>
+                    <label class="text-xs text-slate-400 block mb-1">URL</label>
                     <input id="prowlarr-url" type="text" placeholder="http://localhost:9696" class="w-full">
                 </div>
                 <div>
-                    <label class="settings-label">API Key</label>
+                    <label class="text-xs text-slate-400 block mb-1">API Key</label>
                     <input id="prowlarr-key" type="password" placeholder="API key" class="w-full">
                 </div>
             </div>
         </div>
 
         <!-- Jackett -->
-        <div class="settings-section">
+        <div class="border-t border-slate-700 pt-3 mt-3">
             <h4 class="font-medium text-indigo-400 text-sm">🔎 Jackett (Alternative)</h4>
-            <div class="settings-grid mt-2">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
                 <div>
-                    <label class="settings-label">URL</label>
+                    <label class="text-xs text-slate-400 block mb-1">URL</label>
                     <input id="jackett-url" type="text" placeholder="http://localhost:9117" class="w-full">
                 </div>
                 <div>
-                    <label class="settings-label">API Key</label>
+                    <label class="text-xs text-slate-400 block mb-1">API Key</label>
                     <input id="jackett-key" type="password" placeholder="API key" class="w-full">
                 </div>
             </div>
         </div>
 
         <!-- qBittorrent -->
-        <div class="settings-section">
+        <div class="border-t border-slate-700 pt-3 mt-3">
             <h4 class="font-medium text-indigo-400 text-sm">⬇️ qBittorrent</h4>
-            <div class="settings-grid mt-2">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
                 <div>
-                    <label class="settings-label">Host</label>
+                    <label class="text-xs text-slate-400 block mb-1">Host</label>
                     <input id="qbit-host" type="text" placeholder="localhost" class="w-full">
                 </div>
                 <div>
-                    <label class="settings-label">Port</label>
+                    <label class="text-xs text-slate-400 block mb-1">Port</label>
                     <input id="qbit-port" type="text" placeholder="8080" class="w-full">
                 </div>
                 <div>
-                    <label class="settings-label">Username</label>
+                    <label class="text-xs text-slate-400 block mb-1">Username</label>
                     <input id="qbit-user" type="text" placeholder="admin" class="w-full">
                 </div>
                 <div>
-                    <label class="settings-label">Password</label>
+                    <label class="text-xs text-slate-400 block mb-1">Password</label>
                     <input id="qbit-pass" type="password" placeholder="Password" class="w-full">
                 </div>
             </div>
@@ -183,36 +173,36 @@
         </div>
 
         <!-- Sport Folders -->
-        <div class="settings-section">
+        <div class="border-t border-slate-700 pt-3 mt-3">
             <h4 class="font-medium text-indigo-400 text-sm">📁 Sport Folders</h4>
-            <div class="settings-grid mt-2">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
                 <div>
-                    <label class="settings-label">NCAAF</label>
+                    <label class="text-xs text-slate-400 block mb-1">NCAAF</label>
                     <input id="folder-ncaaf" type="text" placeholder="/media/NCAAF" class="w-full">
                 </div>
                 <div>
-                    <label class="settings-label">NFL</label>
+                    <label class="text-xs text-slate-400 block mb-1">NFL</label>
                     <input id="folder-nfl" type="text" placeholder="/media/NFL" class="w-full">
                 </div>
                 <div>
-                    <label class="settings-label">MLB</label>
+                    <label class="text-xs text-slate-400 block mb-1">MLB</label>
                     <input id="folder-mlb" type="text" placeholder="/media/MLB" class="w-full">
                 </div>
             </div>
         </div>
 
         <!-- Schedule -->
-        <div class="settings-section">
+        <div class="border-t border-slate-700 pt-3 mt-3">
             <h4 class="font-medium text-indigo-400 text-sm">⏰ Search Schedule</h4>
             <div class="mt-2">
-                <label class="settings-label">Cron Expression</label>
+                <label class="text-xs text-slate-400 block mb-1">Cron Expression</label>
                 <input id="search-schedule" type="text" value="0 */4 * * *" class="w-full">
                 <p class="text-xs text-slate-500 mt-1">Examples: <span class="font-mono">0 */4 * * *</span> (every 4 hours), <span class="font-mono">0 2 * * *</span> (daily at 2 AM)</p>
             </div>
         </div>
 
         <!-- Save/Load Buttons -->
-        <div class="settings-section flex flex-wrap gap-2 mt-3">
+        <div class="border-t border-slate-700 pt-3 mt-3 flex flex-wrap gap-2">
             <button onclick="saveSettings()" class="btn-primary text-sm">💾 Save Settings</button>
             <button onclick="loadSettings()" class="btn-outline text-sm">📂 Load Settings</button>
             <button onclick="syncSport()" class="btn-outline text-sm">🔄 Sync Schedule</button>
@@ -226,16 +216,27 @@
 <div id="toast-container"></div>
 
 <script>
-// ============ STATE ============
-let currentGames = [];
+// ============ CURRENT YEAR ============
+const currentYear = new Date().getFullYear();
 
-// ============ LOAD SCHEDULE ============
+// ============ POPULATE YEAR DROPDOWN ============
 document.addEventListener('DOMContentLoaded', () => {
+    const yearSelect = document.getElementById('year-select');
+    yearSelect.innerHTML = '';
+    for (let y = currentYear; y >= currentYear - 2; y--) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        if (y === currentYear) opt.selected = true;
+        yearSelect.appendChild(opt);
+    }
+    
     loadSchedule();
     loadSettings();
     loadStatus();
 });
 
+// ============ LOAD SCHEDULE ============
 function loadSchedule() {
     const sport = document.getElementById('sport-select').value;
     const year = document.getElementById('year-select').value;
@@ -245,37 +246,50 @@ function loadSchedule() {
             currentGames = data;
             renderSchedule(data);
         })
-        .catch(() => document.getElementById('schedule-body').innerHTML = '<tr><td colspan="7" class="text-center py-8 text-red-400">Failed to load schedule</td></tr>');
+        .catch(() => document.getElementById('schedule-body').innerHTML = '<tr><td colspan="8" class="text-center py-8 text-red-400">Failed to load schedule</td></tr>');
 }
+
+let currentGames = [];
 
 function renderSchedule(games) {
     const filter = document.getElementById('team-filter').value.toLowerCase();
-    const filtered = games.filter(g => 
-        !filter || g.home.toLowerCase().includes(filter) || g.away.toLowerCase().includes(filter)
-    );
+    const hideCompleted = document.getElementById('hide-completed').checked;
+    
+    const filtered = games.filter(g => {
+        const matchTeam = !filter || g.home.toLowerCase().includes(filter) || g.away.toLowerCase().includes(filter);
+        const matchCompleted = !hideCompleted || g.status !== 'Completed';
+        return matchTeam && matchCompleted;
+    });
     
     if (filtered.length === 0) {
-        document.getElementById('schedule-body').innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400">No games found</td></tr>';
+        document.getElementById('schedule-body').innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-400">No games found</td></tr>';
         return;
     }
     
     document.getElementById('schedule-body').innerHTML = filtered.map(g => `
         <tr>
-            <td><input type="checkbox" class="game-cb" data-id="${g.id}" ${g.status === 'downloaded' ? 'disabled' : ''} ${g.status === 'wanted' ? 'checked' : ''}></td>
+            <td><input type="checkbox" class="game-cb" data-id="${g.id}" ${g.user_status === 'downloaded' ? 'disabled' : ''} ${g.user_status === 'wanted' ? 'checked' : ''}></td>
             <td>${g.date}</td>
-            <td>${g.time}</td>
+            <td>${g.time || '-'}</td>
             <td class="font-medium">${g.home}</td>
             <td class="text-slate-500 text-sm">vs</td>
             <td class="font-medium">${g.away}</td>
             <td>${statusBadge(g.status)}</td>
+            <td>${userStatusBadge(g.user_status)}</td>
         </tr>
     `).join('');
 }
 
 function statusBadge(status) {
-    const labels = { wanted: '⬜ Request', requested: '⏳ Searching', downloaded: '✅ Downloaded', failed: '❌ Failed' };
-    const classes = { wanted: 'badge-wanted', requested: 'badge-requested', downloaded: 'badge-downloaded', failed: 'badge-failed' };
-    return `<span class="${classes[status] || 'badge-wanted'}">${labels[status] || 'Request'}</span>`;
+    const labels = { 'Scheduled': '📅 Scheduled', 'Completed': '✅ Completed', 'Postponed': '⏳ Postponed', 'Canceled': '❌ Canceled' };
+    const classes = { 'Scheduled': 'badge-scheduled', 'Completed': 'badge-completed', 'Postponed': 'badge-postponed', 'Canceled': 'badge-postponed' };
+    return `<span class="${classes[status] || 'badge-scheduled'}">${labels[status] || status}</span>`;
+}
+
+function userStatusBadge(status) {
+    const labels = { wanted: '⬜ Wanted', requested: '⏳ Searching', downloaded: '✅ Downloaded' };
+    const classes = { wanted: 'badge-wanted', requested: 'badge-requested', downloaded: 'badge-downloaded' };
+    return `<span class="${classes[status] || 'badge-wanted'}">${labels[status] || 'Wanted'}</span>`;
 }
 
 function filterGames() { renderSchedule(currentGames); }
@@ -334,7 +348,6 @@ function loadSettings() {
     fetch('/api/settings')
         .then(r => r.json())
         .then(data => {
-            document.getElementById('tsdb-key').value = data.thesportsdb_api_key || '';
             document.getElementById('prowlarr-url').value = data.prowlarr_url || '';
             document.getElementById('prowlarr-key').value = data.prowlarr_api_key || '';
             document.getElementById('jackett-url').value = data.jackett_url || '';
@@ -345,7 +358,6 @@ function loadSettings() {
             document.getElementById('qbit-pass').value = data.qbit_password || '';
             document.getElementById('search-schedule').value = data.search_schedule || '0 */4 * * *';
             
-            // Parse sport folders
             let folders = {};
             try { folders = JSON.parse(data.sport_folders || '{}'); } catch(e) {}
             document.getElementById('folder-ncaaf').value = folders.NCAAF || '';
@@ -363,7 +375,6 @@ function saveSettings() {
     };
     
     const payload = {
-        thesportsdb_api_key: document.getElementById('tsdb-key').value,
         prowlarr_url: document.getElementById('prowlarr-url').value,
         prowlarr_api_key: document.getElementById('prowlarr-key').value,
         jackett_url: document.getElementById('jackett-url').value,
@@ -415,11 +426,11 @@ async function syncSport() {
         const res = await fetch(`/api/sync/${sport}?year=${year}`, { method: 'POST' });
         const data = await res.json();
         if (data.success) {
-            status.textContent = `✅ Synced ${data.events_added || 0} events`;
-            showToast(`Synced ${data.events_added || 0} events`, 'success');
+            status.textContent = `✅ Synced ${sport} ${year}`;
+            showToast(`Synced ${sport} ${year}`, 'success');
             loadSchedule();
         } else {
-            status.textContent = '❌ ' + (data.error || 'Sync failed');
+            status.textContent = '❌ ' + (data.message || 'Sync failed');
             showToast('Sync failed', 'error');
         }
     } catch(e) {
