@@ -7,7 +7,7 @@ services:
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs
-      - /path/to/your/media:/media/sports  # Adjust this path
+      - /path/to/your/media:/media/sports  # CHANGE THIS to your media path
     environment:
       - TZ=America/New_York
       - LOG_LEVEL=INFO
