@@ -3,7 +3,7 @@ services:
     build: .
     container_name: gametimarr
     ports:
-      - "7667:7667"  # Changed from 7227 to 7667
+      - "7667:7667"
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs

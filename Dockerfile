@@ -16,6 +16,6 @@ COPY . .
 
 RUN mkdir -p /app/logs /app/config
 
-EXPOSE 7667  # Changed from 7227 to 7667
+EXPOSE 7667
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7667"]  # Changed from 7227 to 7667
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7667"]
