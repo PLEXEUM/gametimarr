@@ -78,7 +78,7 @@ class TheSportsDBClient:
                     (sport_slug, sport_name)
                 )
                 conn.commit()
-                sport_id = cursor.lastrowid  # ← FIXED: use cursor.lastrowid
+                sport_id = cursor.lastrowid
             else:
                 sport_id = sport["id"]
 
@@ -90,7 +90,7 @@ class TheSportsDBClient:
             # Get teams for this league directly
             teams = await self.get_teams(league_id)
             team_count = 0
-            
+
             for team in teams:
                 team_name = team.get("strTeam")
                 if team_name:
@@ -100,7 +100,7 @@ class TheSportsDBClient:
                         (team_name, sport_id, team.get("idTeam"))
                     )
                     team_count += 1
-            
+
             conn.commit()
             logger.info(f"Synced {team_count} teams for {sport_slug}")
             return {"success": True, "teams_found": team_count}
@@ -112,19 +112,11 @@ class TheSportsDBClient:
             conn.close()
 
     async def sync_events(self, sport_slug: str, year: int) -> dict:
-    async def sync_events(self, sport_slug: str, year: int) -> dict:
         """Sync events for a sport and year using known league IDs."""
         if not self.is_configured():
             return {"success": False, "error": "API key not configured"}
 
-        # Known league IDs
-        league_ids = {
-            "NCAAF": "4479",
-            "NFL": "4391",
-            "MLB": "4424"
-        }
-    
-        league_id = league_ids.get(sport_slug)
+        league_id = LEAGUE_IDS.get(sport_slug)
         if not league_id:
             return {"success": False, "error": f"No league ID for {sport_slug}"}
 
@@ -146,19 +138,18 @@ class TheSportsDBClient:
             for event in events:
                 home_team = event.get("strHomeTeam")
                 away_team = event.get("strAwayTeam")
-                event_date = event.get("dateEvent")  # Format: 2026-08-27
+                event_date = event.get("dateEvent")
                 event_time = event.get("strTime") or event.get("strTimeLocal") or ""
 
                 if not home_team or not away_team or not event_date:
                     continue
 
-                # Get or create team IDs
+                # Get or create home team
                 home = conn.execute(
                     "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
                     (home_team, sport_id)
                 ).fetchone()
-            
-                # If team doesn't exist, create it
+
                 if not home:
                     cursor = conn.execute(
                         "INSERT INTO teams (name, sport_id) VALUES (?, ?)",
@@ -169,11 +160,12 @@ class TheSportsDBClient:
                 else:
                     home_id = home["id"]
 
+                # Get or create away team
                 away = conn.execute(
                     "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
                     (away_team, sport_id)
                 ).fetchone()
-            
+
                 if not away:
                     cursor = conn.execute(
                         "INSERT INTO teams (name, sport_id) VALUES (?, ?)",
@@ -186,7 +178,7 @@ class TheSportsDBClient:
 
                 # Insert or update game
                 conn.execute(
-                    """INSERT OR REPLACE INTO games 
+                    """INSERT OR REPLACE INTO games
                        (sport_id, home_team_id, away_team_id, event_date, event_time, year, external_id)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (sport_id, home_id, away_id, event_date, event_time, year, event.get("idEvent"))
