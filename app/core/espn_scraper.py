@@ -47,21 +47,8 @@ class ESPNScraper:
 
         games = self._parse_teamrankings(html, sport_slug)
 
-        # Filter: only keep games from season start to today + 30 days
-        filtered = []
-        today = datetime.now().date()
-        max_date = today + timedelta(days=30)
-
-        for game in games:
-            if game["date"]:
-                try:
-                    game_date = datetime.strptime(game["date"], "%Y-%m-%d").date()
-                    if game_date <= max_date:
-                        filtered.append(game)
-                except ValueError:
-                    filtered.append(game)
-            else:
-                filtered.append(game)
+        # No filter - keep all games from the full season
+        filtered = games
 
         logger.info(f"Found {len(filtered)} games for {sport_slug} (filtered from {len(games)})")
         return filtered
