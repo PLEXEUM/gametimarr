@@ -22,6 +22,8 @@
         input:focus, select:focus { outline: none; border-color: #6366f1; }
         .settings-collapse { display: none; }
         .settings-collapse.open { display: block; }
+        .settings-section { border-top: 1px solid #334155; padding-top: 0.75rem; margin-top: 0.75rem; }
+        .settings-section:first-child { border-top: none; padding-top: 0; margin-top: 0; }
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 0.75rem 1rem; color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #334155; }
         td { padding: 0.75rem 1rem; border-bottom: 1px solid #1e293b; }
@@ -34,6 +36,9 @@
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
         .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: #1e293b; border: 1px solid #334155; padding: 0.75rem 1.25rem; border-radius: 0.5rem; color: #f1f5f9; z-index: 9999; animation: slideIn 0.3s ease; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .settings-label { color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.25rem; }
+        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        @media (max-width: 768px) { .settings-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -57,7 +62,7 @@
         <div class="flex flex-wrap gap-4 items-end">
             <div>
                 <label class="text-xs text-slate-400 uppercase tracking-wide">Sport</label>
-                <select id="sport-select" hx-get="/api/schedule" hx-target="#schedule-body" hx-trigger="change" class="w-40">
+                <select id="sport-select" onchange="loadSchedule()" class="w-40">
                     <option value="NCAAF">NCAAF</option>
                     <option value="NFL">NFL</option>
                     <option value="MLB">MLB</option>
@@ -65,7 +70,7 @@
             </div>
             <div>
                 <label class="text-xs text-slate-400 uppercase tracking-wide">Year</label>
-                <select id="year-select" hx-get="/api/schedule" hx-target="#schedule-body" hx-trigger="change" class="w-28">
+                <select id="year-select" onchange="loadSchedule()" class="w-28">
                     <option value="2026">2026</option>
                     <option value="2025">2025</option>
                     <option value="2024">2024</option>
@@ -109,45 +114,109 @@
 
     <!-- Settings (Collapsible) -->
     <div id="settings-section" class="settings-collapse card mt-4 p-4">
-        <h3 class="font-semibold mb-3">Settings</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-                <label class="text-xs text-slate-400">TheSportsDB API Key</label>
-                <input id="tsdb-key" type="password" placeholder="Enter API key" class="w-full">
+        <h3 class="font-semibold mb-3 text-lg">⚙️ Settings</h3>
+
+        <!-- TheSportsDB -->
+        <div class="settings-section">
+            <h4 class="font-medium text-indigo-400 text-sm">📡 TheSportsDB</h4>
+            <div class="mt-2">
+                <label class="settings-label">API Key</label>
+                <input id="tsdb-key" type="password" placeholder="Enter your TheSportsDB API key" class="w-full">
             </div>
-            <div>
-                <label class="text-xs text-slate-400">Prowlarr URL</label>
-                <input id="prowlarr-url" type="text" placeholder="http://localhost:9696" class="w-full">
-            </div>
-            <div>
-                <label class="text-xs text-slate-400">Prowlarr API Key</label>
-                <input id="prowlarr-key" type="password" placeholder="API key" class="w-full">
-            </div>
-            <div>
-                <label class="text-xs text-slate-400">qBittorrent</label>
-                <div class="flex gap-2">
-                    <input id="qbit-host" type="text" placeholder="localhost" class="w-1/3">
-                    <input id="qbit-port" type="text" placeholder="8080" class="w-1/4">
-                    <input id="qbit-user" type="text" placeholder="admin" class="w-1/3">
+        </div>
+
+        <!-- Prowlarr -->
+        <div class="settings-section">
+            <h4 class="font-medium text-indigo-400 text-sm">🔎 Prowlarr</h4>
+            <div class="settings-grid mt-2">
+                <div>
+                    <label class="settings-label">URL</label>
+                    <input id="prowlarr-url" type="text" placeholder="http://localhost:9696" class="w-full">
+                </div>
+                <div>
+                    <label class="settings-label">API Key</label>
+                    <input id="prowlarr-key" type="password" placeholder="API key" class="w-full">
                 </div>
             </div>
-            <div>
-                <label class="text-xs text-slate-400">qBittorrent Password</label>
-                <input id="qbit-pass" type="password" placeholder="Password" class="w-full">
+        </div>
+
+        <!-- Jackett -->
+        <div class="settings-section">
+            <h4 class="font-medium text-indigo-400 text-sm">🔎 Jackett (Alternative)</h4>
+            <div class="settings-grid mt-2">
+                <div>
+                    <label class="settings-label">URL</label>
+                    <input id="jackett-url" type="text" placeholder="http://localhost:9117" class="w-full">
+                </div>
+                <div>
+                    <label class="settings-label">API Key</label>
+                    <input id="jackett-key" type="password" placeholder="API key" class="w-full">
+                </div>
             </div>
-            <div>
-                <label class="text-xs text-slate-400">Search Schedule (cron)</label>
+        </div>
+
+        <!-- qBittorrent -->
+        <div class="settings-section">
+            <h4 class="font-medium text-indigo-400 text-sm">⬇️ qBittorrent</h4>
+            <div class="settings-grid mt-2">
+                <div>
+                    <label class="settings-label">Host</label>
+                    <input id="qbit-host" type="text" placeholder="localhost" class="w-full">
+                </div>
+                <div>
+                    <label class="settings-label">Port</label>
+                    <input id="qbit-port" type="text" placeholder="8080" class="w-full">
+                </div>
+                <div>
+                    <label class="settings-label">Username</label>
+                    <input id="qbit-user" type="text" placeholder="admin" class="w-full">
+                </div>
+                <div>
+                    <label class="settings-label">Password</label>
+                    <input id="qbit-pass" type="password" placeholder="Password" class="w-full">
+                </div>
+            </div>
+            <div class="mt-2">
+                <button onclick="testQbit()" class="btn-outline text-sm">Test Connection</button>
+                <span id="qbit-test-status" class="text-sm text-slate-400 ml-2"></span>
+            </div>
+        </div>
+
+        <!-- Sport Folders -->
+        <div class="settings-section">
+            <h4 class="font-medium text-indigo-400 text-sm">📁 Sport Folders</h4>
+            <div class="settings-grid mt-2">
+                <div>
+                    <label class="settings-label">NCAAF</label>
+                    <input id="folder-ncaaf" type="text" placeholder="/media/NCAAF" class="w-full">
+                </div>
+                <div>
+                    <label class="settings-label">NFL</label>
+                    <input id="folder-nfl" type="text" placeholder="/media/NFL" class="w-full">
+                </div>
+                <div>
+                    <label class="settings-label">MLB</label>
+                    <input id="folder-mlb" type="text" placeholder="/media/MLB" class="w-full">
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule -->
+        <div class="settings-section">
+            <h4 class="font-medium text-indigo-400 text-sm">⏰ Search Schedule</h4>
+            <div class="mt-2">
+                <label class="settings-label">Cron Expression</label>
                 <input id="search-schedule" type="text" value="0 */4 * * *" class="w-full">
+                <p class="text-xs text-slate-500 mt-1">Examples: <span class="font-mono">0 */4 * * *</span> (every 4 hours), <span class="font-mono">0 2 * * *</span> (daily at 2 AM)</p>
             </div>
         </div>
-        <div class="mt-3 flex gap-2">
-            <button onclick="saveSettings()" class="btn-primary text-sm">Save Settings</button>
-            <button onclick="loadSettings()" class="btn-outline text-sm">Load Settings</button>
+
+        <!-- Save/Load Buttons -->
+        <div class="settings-section flex flex-wrap gap-2 mt-3">
+            <button onclick="saveSettings()" class="btn-primary text-sm">💾 Save Settings</button>
+            <button onclick="loadSettings()" class="btn-outline text-sm">📂 Load Settings</button>
+            <button onclick="syncSport()" class="btn-outline text-sm">🔄 Sync Schedule</button>
             <span id="settings-status" class="text-sm text-slate-400 ml-2 self-center"></span>
-        </div>
-        <div class="mt-3 text-xs text-slate-500 border-t border-slate-700 pt-3">
-            Sport Folders (format: NCAAF=/path,NFL=/path,MLB=/path)
-            <input id="sport-folders" type="text" placeholder='NCAAF="/media/NCAAF",NFL="/media/NFL",MLB="/media/MLB"' class="w-full mt-1">
         </div>
     </div>
 
@@ -157,6 +226,9 @@
 <div id="toast-container"></div>
 
 <script>
+// ============ STATE ============
+let currentGames = [];
+
 // ============ LOAD SCHEDULE ============
 document.addEventListener('DOMContentLoaded', () => {
     loadSchedule();
@@ -169,7 +241,10 @@ function loadSchedule() {
     const year = document.getElementById('year-select').value;
     fetch(`/api/schedule?sport=${sport}&year=${year}`)
         .then(r => r.json())
-        .then(data => renderSchedule(data))
+        .then(data => {
+            currentGames = data;
+            renderSchedule(data);
+        })
         .catch(() => document.getElementById('schedule-body').innerHTML = '<tr><td colspan="7" class="text-center py-8 text-red-400">Failed to load schedule</td></tr>');
 }
 
@@ -203,7 +278,7 @@ function statusBadge(status) {
     return `<span class="${classes[status] || 'badge-wanted'}">${labels[status] || 'Request'}</span>`;
 }
 
-function filterGames() { loadSchedule(); }
+function filterGames() { renderSchedule(currentGames); }
 function toggleAll() {
     const checked = document.getElementById('select-all').checked;
     document.querySelectorAll('.game-cb:not(:disabled)').forEach(cb => cb.checked = checked);
@@ -211,7 +286,7 @@ function toggleAll() {
 
 // ============ SEARCH ============
 async function searchSelected() {
-    const ids = [...document.querySelectorAll('.game-cb:checked:not(:disabled)')].map(cb => cb.dataset.id);
+    const ids = [...document.querySelectorAll('.game-cb:checked:not(:disabled)')].map(cb => parseInt(cb.dataset.id));
     if (ids.length === 0) { showToast('No games selected', 'warning'); return; }
     
     const btn = document.getElementById('search-btn');
@@ -249,7 +324,7 @@ function loadStatus() {
         .then(r => r.json())
         .then(data => {
             document.getElementById('schedule-info').textContent = 
-                `Wanted: ${data.wanted || 0} | Requested: ${data.requested || 0} | Downloaded: ${data.downloaded || 0}`;
+                `Wanted: ${data.wanted || 0} | Requested: ${data.requested || 0} | Downloaded: ${data.downloaded || 0} | Next: ${data.next_run || 'never'}`;
         })
         .catch(() => {});
 }
@@ -262,27 +337,43 @@ function loadSettings() {
             document.getElementById('tsdb-key').value = data.thesportsdb_api_key || '';
             document.getElementById('prowlarr-url').value = data.prowlarr_url || '';
             document.getElementById('prowlarr-key').value = data.prowlarr_api_key || '';
+            document.getElementById('jackett-url').value = data.jackett_url || '';
+            document.getElementById('jackett-key').value = data.jackett_api_key || '';
             document.getElementById('qbit-host').value = data.qbit_host || 'localhost';
             document.getElementById('qbit-port').value = data.qbit_port || '8080';
             document.getElementById('qbit-user').value = data.qbit_username || 'admin';
             document.getElementById('qbit-pass').value = data.qbit_password || '';
             document.getElementById('search-schedule').value = data.search_schedule || '0 */4 * * *';
-            document.getElementById('sport-folders').value = data.sport_folders || 'NCAAF="/media/NCAAF",NFL="/media/NFL",MLB="/media/MLB"';
+            
+            // Parse sport folders
+            let folders = {};
+            try { folders = JSON.parse(data.sport_folders || '{}'); } catch(e) {}
+            document.getElementById('folder-ncaaf').value = folders.NCAAF || '';
+            document.getElementById('folder-nfl').value = folders.NFL || '';
+            document.getElementById('folder-mlb').value = folders.MLB || '';
         })
         .catch(() => showToast('Failed to load settings', 'error'));
 }
 
 function saveSettings() {
+    const folders = {
+        NCAAF: document.getElementById('folder-ncaaf').value,
+        NFL: document.getElementById('folder-nfl').value,
+        MLB: document.getElementById('folder-mlb').value
+    };
+    
     const payload = {
         thesportsdb_api_key: document.getElementById('tsdb-key').value,
         prowlarr_url: document.getElementById('prowlarr-url').value,
         prowlarr_api_key: document.getElementById('prowlarr-key').value,
+        jackett_url: document.getElementById('jackett-url').value,
+        jackett_api_key: document.getElementById('jackett-key').value,
         qbit_host: document.getElementById('qbit-host').value,
         qbit_port: document.getElementById('qbit-port').value,
         qbit_username: document.getElementById('qbit-user').value,
         qbit_password: document.getElementById('qbit-pass').value,
         search_schedule: document.getElementById('search-schedule').value,
-        sport_folders: document.getElementById('sport-folders').value
+        sport_folders: JSON.stringify(folders)
     };
     
     fetch('/api/settings', {
@@ -293,10 +384,48 @@ function saveSettings() {
     .then(r => r.json())
     .then(data => {
         document.getElementById('settings-status').textContent = data.success ? '✅ Saved' : '❌ Failed';
-        if (data.success) showToast('Settings saved', 'success');
+        if (data.success) { showToast('Settings saved', 'success'); loadStatus(); }
         else showToast('Failed to save settings', 'error');
     })
     .catch(() => showToast('Error saving settings', 'error'));
+}
+
+async function testQbit() {
+    const status = document.getElementById('qbit-test-status');
+    status.textContent = '⏳ Testing...';
+    try {
+        const res = await fetch('/api/qbit/test', { method: 'POST' });
+        const data = await res.json();
+        status.textContent = data.success ? '✅ Connected' : '❌ ' + (data.message || 'Failed');
+        if (data.success) showToast('qBittorrent connected', 'success');
+        else showToast('qBittorrent connection failed', 'error');
+    } catch(e) {
+        status.textContent = '❌ Error';
+        showToast('Test failed', 'error');
+    }
+}
+
+async function syncSport() {
+    const sport = document.getElementById('sport-select').value;
+    const year = document.getElementById('year-select').value;
+    const status = document.getElementById('settings-status');
+    status.textContent = '⏳ Syncing...';
+    
+    try {
+        const res = await fetch(`/api/sync/${sport}?year=${year}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            status.textContent = `✅ Synced ${data.events_added || 0} events`;
+            showToast(`Synced ${data.events_added || 0} events`, 'success');
+            loadSchedule();
+        } else {
+            status.textContent = '❌ ' + (data.error || 'Sync failed');
+            showToast('Sync failed', 'error');
+        }
+    } catch(e) {
+        status.textContent = '❌ Error';
+        showToast('Sync error', 'error');
+    }
 }
 
 // ============ TOAST ============
