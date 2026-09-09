@@ -177,13 +177,3 @@ class QBittorrentClient:
         if status.get("progress", 0) >= 1.0:
             return status.get("save_path", "")
         return ""
-
-    async def test_connection(self) -> dict:
-        """Test qBittorrent connection."""
-        try:
-            if await self._login():
-                return {"success": True, "message": "Connected to qBittorrent"}
-            else:
-                return {"success": False, "message": "Login failed - check credentials"}
-        except Exception as e:
-            return {"success": False, "message": str(e)}
