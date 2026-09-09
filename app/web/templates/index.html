@@ -459,8 +459,18 @@ async function testJackett() {
 async function testQbit() {
     const status = document.getElementById('qbit-test-status');
     status.textContent = '⏳ Testing...';
+    
+    const host = document.getElementById('qbit-host').value;
+    const port = parseInt(document.getElementById('qbit-port').value);
+    const username = document.getElementById('qbit-user').value;
+    const password = document.getElementById('qbit-pass').value;
+    
     try {
-        const res = await fetch('/api/qbit/test', { method: 'POST' });
+        const res = await fetch('/api/qbit/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ host, port, username, password })
+        });
         const data = await res.json();
         status.textContent = data.success ? '✅ Connected' : '❌ ' + (data.message || 'Failed');
         if (data.success) showToast('qBittorrent connected', 'success');

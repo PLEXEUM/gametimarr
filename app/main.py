@@ -379,11 +379,23 @@ async def save_settings(data: SettingsRequest):
 
 # ============ API - QBITTORRENT TEST ============
 
+class QbitTestRequest(BaseModel):
+    host: str
+    port: int
+    username: str
+    password: str
+
+
 @app.post("/api/qbit/test")
-async def test_qbit():
-    """Test qBittorrent connection."""
+async def test_qbit(data: QbitTestRequest):
+    """Test qBittorrent connection using provided credentials."""
     qbit = QBittorrentClient()
-    result = await qbit.test_connection()
+    result = await qbit.test_connection(
+        host=data.host,
+        port=data.port,
+        username=data.username,
+        password=data.password
+    )
     return result
 
 # ============ API - PROWLARR TEST ============

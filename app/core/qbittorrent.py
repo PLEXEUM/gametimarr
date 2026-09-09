@@ -20,6 +20,37 @@ class QBittorrentClient:
         """Check if qBittorrent is configured."""
         return bool(self.host and self.port and self.username)
 
+    
+    async def test_connection(self, host: str = None, port: int = None, username: str = None, password: str = None) -> dict:
+        """Test qBittorrent connection with provided credentials."""
+        # Use provided values or fall back to saved settings
+        test_host = host or self.host
+        test_port = port or self.port
+        test_username = username or self.username
+        test_password = password or self.password
+    
+        if not test_host or not test_port:
+            return {"success": False, "message": "Host and port are required"}
+    
+        try:
+            # Create a temporary client with the test credentials
+            temp_client = httpx.AsyncClient(timeout=10)
+            url = f"http://{test_host}:{test_port}/api/v2/auth/login"
+            data = {"username": test_username, "password": test_password}
+        
+            response = await temp_client.post(url, data=data)
+            await temp_client.aclose()
+        
+            if response.status_code == 200 and "Ok" in response.text:
+                return {"success": True, "message": "Connected to qBittorrent"}
+            else:
+                return {"success": False, "message": "Login failed - check credentials"}
+        except httpx.ConnectError:
+            return {"success": False, "message": "Could not reach server (check host/port)"}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+    
+    
     async def _login(self) -> bool:
         """Login to qBittorrent API."""
         if self._logged_in:
