@@ -84,34 +84,53 @@ class JackettClient:
         logger.info(f"[search] Found {len(results)} results")
         return results
 
-    async def search_sport_event(self, home_team: str, away_team: str, year: int = None) -> list:
+    
+    async def search_sport_event(self, home_team: str, away_team: str, date: str = None) -> list:
         """
         Build a search query for a sports event.
-        
+    
         Examples:
-            - "Auburn Baylor"
-            - "Auburn vs Baylor 2026"
+            - "Auburn Baylor" (no date)
+            - "Auburn Baylor 09 08 2026" (with date)
         """
-        logger.info(f"=== search_sport_event: {home_team} vs {away_team}, year={year} ===")
-        
+        logger.info(f"=== search_sport_event: {home_team} vs {away_team}, date={date} ===")
+    
+        # Build query with teams
         query_parts = [home_team, away_team]
-        if year:
-            query_parts.append(str(year))
-        
+        if date:
+            query_parts.append(date)
+    
         query = " ".join(query_parts)
         logger.info(f"[search_sport_event] Query 1: '{query}'")
         results = await self.search(query)
-        
+    
         # If no results, try with "vs" format
         if not results:
             query = f"{home_team} vs {away_team}"
-            if year:
-                query += f" {year}"
+            if date:
+                query += f" {date}"
             logger.info(f"[search_sport_event] Query 2 (vs format): '{query}'")
             results = await self.search(query)
         else:
             logger.info(f"[search_sport_event] Query 1 returned {len(results)} results, skipping vs format")
+    
+        # Filter results by date if provided
+        if date and results:
+            # Clean the date for matching (remove spaces, slashes, dashes)
+            date_clean = date.replace(" ", "").replace("/", "").replace("-", "")
+            filtered = []
+            for r in results:
+                title = r.get("title", "")
+                title_clean = title.replace(".", "").replace("-", "").replace("/", "").replace(" ", "")
+                if date_clean in title_clean:
+                    filtered.append(r)
         
+            if filtered:
+                logger.info(f"[search_sport_event] Filtered to {len(filtered)} results matching date {date}")
+                results = filtered
+            else:
+                logger.warning(f"[search_sport_event] No results matched date {date}, returning all {len(results)} results")
+    
         logger.info(f"[search_sport_event] Final results: {len(results)}")
         return results
 

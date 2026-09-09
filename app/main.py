@@ -280,11 +280,16 @@ async def perform_search(games: list):
     
     for game in games:
         try:
-            year = game["event_date"].split("-")[0] if game["event_date"] else None
+            # Pass the full date in MM DD YYYY format
+            full_date = None
+            if game["event_date"]:
+                parts = game["event_date"].split("-")
+                if len(parts) == 3:
+                    full_date = f"{parts[1]} {parts[2]} {parts[0]}"  # MM DD YYYY
             results = await search_client.search_sport_event(
-                game["home"], 
-                game["away"], 
-                year
+                game["home"],
+                game["away"],
+                full_date
             )
             
             if results:
