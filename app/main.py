@@ -46,6 +46,7 @@ class SettingsRequest(BaseModel):
     thesportsdb_api_key: Optional[str] = None  # Kept for backward compatibility
     prowlarr_url: Optional[str] = None
     prowlarr_api_key: Optional[str] = None
+    jackett_torznab_url: Optional[str] = None
     qbit_host: Optional[str] = None
     qbit_port: Optional[str] = None
     qbit_username: Optional[str] = None
@@ -356,6 +357,7 @@ async def get_settings():
         "thesportsdb_api_key": get_setting("thesportsdb_api_key"),
         "prowlarr_url": get_setting("prowlarr_url"),
         "prowlarr_api_key": get_setting("prowlarr_api_key"),
+        "jackett_torznab_url": get_setting("jackett_torznab_url"),
         "qbit_host": get_setting("qbit_host"),
         "qbit_port": get_setting("qbit_port"),
         "qbit_username": get_setting("qbit_username"),
