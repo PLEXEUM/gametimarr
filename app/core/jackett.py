@@ -9,27 +9,43 @@ logger = get_logger()
 
 class JackettClient:
     def __init__(self):
-        self.torznab_url = get_setting("jackett_torznab_url")
+        logger.info("=== JackettClient INIT ===")
         
+        # Load the Torznab URL from database
+        self.torznab_url = get_setting("jackett_torznab_url")
+        logger.info(f"[INIT] raw torznab_url from DB: '{self.torznab_url}'")
+        
+        if self.torznab_url:
+            logger.info(f"[INIT] torznab_url length: {len(self.torznab_url)}")
+            logger.info(f"[INIT] first 100 chars: {self.torznab_url[:100]}")
+        else:
+            logger.warning("[INIT] torznab_url is EMPTY or None")
+
         if not self.torznab_url:
             logger.warning("Jackett Torznab URL not configured")
 
     def is_configured(self) -> bool:
         """Check if Jackett is configured."""
-        return bool(self.torznab_url)
+        result = bool(self.torznab_url)
+        logger.info(f"[is_configured] returning {result} (torznab_url: '{self.torznab_url[:30] if self.torznab_url else 'EMPTY'}')")
+        return result
 
     async def _request(self, url: str) -> bytes:
         """Make a request to the Torznab URL."""
+        logger.info(f"[_request] URL: {url[:100]}...")
+        
         if not self.is_configured():
+            logger.warning("[_request] Not configured, returning empty")
             return b""
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.get(url)
                 response.raise_for_status()
+                logger.info(f"[_request] Response status: {response.status_code}, content length: {len(response.content)}")
                 return response.content
         except Exception as e:
-            logger.error(f"Jackett Torznab request error: {e}")
+            logger.error(f"[_request] Request error: {e}")
             return b""
 
     async def search(self, query: str) -> list:
@@ -42,7 +58,10 @@ class JackettClient:
         Returns:
             List of release results
         """
+        logger.info(f"=== JackettClient.search() called with query: '{query}' ===")
+        
         if not self.is_configured():
+            logger.warning("[search] Not configured, returning empty list")
             return []
 
         # Build the Torznab URL with the query
@@ -51,14 +70,19 @@ class JackettClient:
         else:
             url = f"{self.torznab_url}?t=search&q={quote(query)}"
         
-        logger.info(f"Jackett Torznab search: {query}")
+        logger.info(f"[search] Full URL: {url[:150]}...")
+        
         content = await self._request(url)
         
         if not content:
+            logger.warning("[search] No content received from _request")
             return []
         
         # Parse the XML response
-        return self._parse_torznab_response(content)
+        logger.info("[search] Parsing Torznab response...")
+        results = self._parse_torznab_response(content)
+        logger.info(f"[search] Found {len(results)} results")
+        return results
 
     async def search_sport_event(self, home_team: str, away_team: str, year: int = None) -> list:
         """
@@ -68,11 +92,14 @@ class JackettClient:
             - "Auburn Baylor"
             - "Auburn vs Baylor 2026"
         """
+        logger.info(f"=== search_sport_event: {home_team} vs {away_team}, year={year} ===")
+        
         query_parts = [home_team, away_team]
         if year:
             query_parts.append(str(year))
         
         query = " ".join(query_parts)
+        logger.info(f"[search_sport_event] Query 1: '{query}'")
         results = await self.search(query)
         
         # If no results, try with "vs" format
@@ -80,8 +107,12 @@ class JackettClient:
             query = f"{home_team} vs {away_team}"
             if year:
                 query += f" {year}"
+            logger.info(f"[search_sport_event] Query 2 (vs format): '{query}'")
             results = await self.search(query)
+        else:
+            logger.info(f"[search_sport_event] Query 1 returned {len(results)} results, skipping vs format")
         
+        logger.info(f"[search_sport_event] Final results: {len(results)}")
         return results
 
     def _parse_torznab_response(self, content: bytes) -> list:
@@ -103,17 +134,21 @@ class JackettClient:
           </channel>
         </rss>
         """
+        logger.info("=== _parse_torznab_response ===")
+        
         releases = []
         
         try:
             # Parse XML
             root = ET.fromstring(content)
+            logger.info("[parse] XML parsed successfully")
             
-            # Find all item elements (search in default namespace)
-            # Torznab RSS uses standard RSS namespaces
+            # Find all item elements
             namespace = {"torznab": "http://torznab.com/schemas/2015/feed"}
+            items = root.findall(".//item")
+            logger.info(f"[parse] Found {len(items)} items in XML")
             
-            for item in root.findall(".//item"):
+            for idx, item in enumerate(items):
                 release = {}
                 
                 # Get title
@@ -204,26 +239,34 @@ class JackettClient:
                     release["publish_date"] = pub_date_elem.text
                 
                 releases.append(release)
+                logger.debug(f"[parse] Item {idx+1}: '{release.get('title', 'Unknown')[:50]}...'")
                 
         except ET.ParseError as e:
-            logger.error(f"Failed to parse Torznab response: {e}")
+            logger.error(f"[parse] Failed to parse Torznab response: {e}")
+            logger.error(f"[parse] Content preview: {content[:500]}")
         except Exception as e:
-            logger.error(f"Error parsing Torznab response: {e}")
+            logger.error(f"[parse] Error parsing Torznab response: {e}")
         
+        logger.info(f"[parse] Returning {len(releases)} releases")
         return releases
 
     async def get_release_download_url(self, release: dict) -> str:
         """Extract download URL from a release."""
+        logger.info(f"[get_release_download_url] Release title: {release.get('title', 'Unknown')[:50]}...")
+        
         # Try link field
         download_url = release.get("link")
         if download_url:
+            logger.info(f"[get_release_download_url] Found link: {download_url[:50]}...")
             return download_url
         
         # Try guid
         guid = release.get("guid")
         if guid and guid.startswith("http"):
+            logger.info(f"[get_release_download_url] Found guid: {guid[:50]}...")
             return guid
         
+        logger.warning("[get_release_download_url] No download URL found")
         return ""
 
     async def test_connection(self, torznab_url: str = None) -> dict:
@@ -238,6 +281,7 @@ class JackettClient:
         """
         # Use provided URL or fall back to saved setting
         test_url = torznab_url or self.torznab_url
+        logger.info(f"=== test_connection: test_url = '{test_url[:50] if test_url else 'EMPTY'}' ===")
         
         if not test_url:
             return {"success": False, "message": "Torznab URL is required"}
@@ -249,33 +293,43 @@ class JackettClient:
             else:
                 url = f"{test_url}?t=search&q=test&limit=1"
             
+            logger.info(f"[test_connection] Request URL: {url[:150]}...")
+            
             async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.get(url)
                 response.raise_for_status()
                 
-                # Check if it looks like a valid Torznab response (XML with RSS)
                 content = response.text.lower()
+                logger.info(f"[test_connection] Response status: {response.status_code}, content length: {len(response.content)}")
+                
                 if "rss" in content and "item" in content:
+                    logger.info("[test_connection] Success: Valid RSS response with items")
                     return {"success": True, "message": "Connected to Jackett (Torznab)"}
                 elif "error" in content:
-                    # Try to get error message from XML
+                    logger.warning("[test_connection] Error detected in response")
                     try:
                         import xml.etree.ElementTree as ET
                         root = ET.fromstring(response.content)
                         error_elem = root.find(".//error")
                         if error_elem is not None:
                             msg = error_elem.get("description", "Authentication failed")
+                            logger.warning(f"[test_connection] Error message: {msg}")
                             return {"success": False, "message": f"Error: {msg}"}
                     except:
                         pass
                     return {"success": False, "message": "Authentication failed (check API key)"}
                 else:
+                    logger.info("[test_connection] Response received but not standard RSS")
                     return {"success": True, "message": "Connected to Jackett (Torznab)"}
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
+                logger.error("[test_connection] 401 Unauthorized")
                 return {"success": False, "message": "Authentication failed (check API key)"}
+            logger.error(f"[test_connection] HTTP error: {e.response.status_code}")
             return {"success": False, "message": f"Server error: {e.response.status_code}"}
         except httpx.ConnectError:
+            logger.error("[test_connection] Connection error")
             return {"success": False, "message": "Could not reach server (check URL)"}
         except Exception as e:
+            logger.error(f"[test_connection] Unexpected error: {e}")
             return {"success": False, "message": str(e)}
