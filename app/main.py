@@ -368,8 +368,13 @@ async def get_settings():
 @app.post("/api/settings")
 async def save_settings(data: SettingsRequest):
     """Save all settings."""
+    # Log what we're receiving
+    logger.info(f"=== SAVE SETTINGS CALLED ===")
+    logger.info(f"Settings payload: {data.dict()}")
+    
     for key, value in data.dict().items():
         if value is not None:
+            logger.info(f"  Saving: {key} = {value[:50] if value and len(value) > 50 else value}")
             set_setting(key, value)
     
     start_scheduler()
