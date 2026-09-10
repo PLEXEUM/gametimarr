@@ -3,27 +3,26 @@ main.py - Entry point for gametimarr.
 
 Startup sequence:
     1. Read environment variables.
-    2. Configure logging.
+    2. Configure logging (stdout + daily rotating file, 5 files kept).
     3. Validate mounted paths (fail fast if misconfigured).
     4. Initialize the database.
     5. Start scanner thread (every 90 minutes).
     6. Start monitor thread (every 60 minutes).
-    7. Run the web server on port 8080.
-
-All three run inside one container. They share the same SQLite connection
-(thread-safe via a lock in database.py).
+    7. Run the web server on port 7667.
 """
 
 import os
 import sys
 import time
+import glob
 import asyncio
 import logging
 import threading
+from datetime import date
 
 import uvicorn
 
-from app.database import init_db, log_event
+from app.database import init_db
 from app.scanner import scan_once
 from app.postprocess import check_completed
 from app import web
@@ -36,24 +35,98 @@ from app import web
 DB_PATH = os.environ.get("DB_PATH", "/data/gametimarr.db")
 DOWNLOAD_PATH = os.environ.get("DOWNLOAD_PATH", "/downloads")
 DESTINATION_PATH = os.environ.get("DESTINATION_PATH", "/watch")
+LOG_PATH = os.environ.get("LOG_PATH", "/logs")
 
-# Intervals in minutes
-SCAN_INTERVAL = 90
-MONITOR_INTERVAL = 60
-
-# Web server port
+SCAN_INTERVAL = 90      # minutes
+MONITOR_INTERVAL = 60   # minutes
 WEB_PORT = int(os.environ.get("WEB_PORT", "7667"))
 
+LOG_FILES_TO_KEEP = 5
+
 
 # ---------------------------------------------------------------------------
-# Logging
+# Daily file handler
 # ---------------------------------------------------------------------------
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+class DailyFileHandler(logging.Handler):
+    """
+    Writes log records to logs/YYYY-MM-DD.log, rolling over at midnight.
+    Keeps the newest N files and deletes older ones.
+    """
+
+    def __init__(self, log_dir: str, keep: int = 5):
+        super().__init__()
+        self.log_dir = log_dir
+        self.keep = keep
+        self._current_date = None
+        self._file = None
+
+        os.makedirs(self.log_dir, exist_ok=True)
+        self._open_for_today()
+
+    def _open_for_today(self):
+        """Open (or create) the log file for today's date."""
+        today = date.today().isoformat()  # YYYY-MM-DD
+
+        if self._file and self._current_date == today:
+            return
+
+        if self._file:
+            self._file.close()
+
+        path = os.path.join(self.log_dir, f"{today}.log")
+        self._file = open(path, "a", encoding="utf-8")
+        self._current_date = today
+
+        self._prune()
+
+    def _prune(self):
+        """Keep only the newest `keep` log files."""
+        try:
+            files = sorted(
+                glob.glob(os.path.join(self.log_dir, "*.log")),
+                reverse=True,
+            )
+            for old in files[self.keep:]:
+                try:
+                    os.remove(old)
+                except OSError:
+                    pass
+        except Exception:
+            pass
+
+    def emit(self, record):
+        try:
+            # Roll over if the date changed since the last write
+            self._open_for_today()
+            msg = self.format(record)
+            self._file.write(msg + "\n")
+            self._file.flush()
+        except Exception:
+            self.handleError(record)
+
+
+def setup_logging():
+    """Configure root logger: stdout for Docker Desktop + daily file."""
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # stdout handler (shows in Docker Desktop's Logs tab)
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setFormatter(formatter)
+    root.addHandler(stream)
+
+    # daily file handler
+    file_handler = DailyFileHandler(LOG_PATH, keep=LOG_FILES_TO_KEEP)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+
 logger = logging.getLogger("gametimarr")
 
 
@@ -62,13 +135,8 @@ logger = logging.getLogger("gametimarr")
 # ---------------------------------------------------------------------------
 
 def validate_paths() -> bool:
-    """
-    Verify that the mounted paths exist and are usable. Return False if any
-    critical path is missing, so the container exits with a clear error.
-    """
     ok = True
 
-    # Data directory must be writable (SQLite needs to create/update the DB)
     data_dir = os.path.dirname(DB_PATH)
     if not os.path.isdir(data_dir):
         logger.error(f"Data directory does not exist: {data_dir}")
@@ -79,25 +147,23 @@ def validate_paths() -> bool:
     else:
         logger.info(f"Data directory OK: {data_dir}")
 
-    # Download path must exist and be readable (we read completed files)
     if not os.path.isdir(DOWNLOAD_PATH):
         logger.error(f"Download path does not exist: {DOWNLOAD_PATH}")
-        ok = False
-    elif not os.access(DOWNLOAD_PATH, os.R_OK):
-        logger.error(f"Download path not readable: {DOWNLOAD_PATH}")
         ok = False
     else:
         logger.info(f"Download path OK: {DOWNLOAD_PATH}")
 
-    # Destination path must exist and be writable (we copy files into it)
     if not os.path.isdir(DESTINATION_PATH):
         logger.error(f"Destination path does not exist: {DESTINATION_PATH}")
         ok = False
-    elif not os.access(DESTINATION_PATH, os.W_OK):
-        logger.error(f"Destination path not writable: {DESTINATION_PATH}")
-        ok = False
     else:
         logger.info(f"Destination path OK: {DESTINATION_PATH}")
+
+    if not os.path.isdir(LOG_PATH):
+        logger.error(f"Log directory does not exist: {LOG_PATH}")
+        ok = False
+    else:
+        logger.info(f"Log directory OK: {LOG_PATH}")
 
     return ok
 
@@ -107,14 +173,7 @@ def validate_paths() -> bool:
 # ---------------------------------------------------------------------------
 
 def scanner_loop():
-    """
-    Run scan_once() every SCAN_INTERVAL minutes.
-    Runs in its own thread. Catches all exceptions so a scan failure never
-    kills the thread.
-    """
     logger.info(f"Scanner thread started (interval: {SCAN_INTERVAL} min)")
-
-    # Small initial delay so the web server is up before the first scan
     time.sleep(15)
 
     while True:
@@ -122,23 +181,12 @@ def scanner_loop():
             asyncio.run(scan_once())
         except Exception as e:
             logger.exception(f"Scanner error: {e}")
-            try:
-                log_event(f"Scanner error: {e}")
-            except Exception:
-                pass
 
         time.sleep(SCAN_INTERVAL * 60)
 
 
 def monitor_loop():
-    """
-    Run check_completed() every MONITOR_INTERVAL minutes.
-    Runs in its own thread. Catches all exceptions so a monitor failure never
-    kills the thread.
-    """
     logger.info(f"Monitor thread started (interval: {MONITOR_INTERVAL} min)")
-
-    # Offset from the scanner so they don't run at the same instant
     time.sleep(30)
 
     while True:
@@ -146,10 +194,6 @@ def monitor_loop():
             asyncio.run(check_completed())
         except Exception as e:
             logger.exception(f"Monitor error: {e}")
-            try:
-                log_event(f"Monitor error: {e}")
-            except Exception:
-                pass
 
         time.sleep(MONITOR_INTERVAL * 60)
 
@@ -159,14 +203,13 @@ def monitor_loop():
 # ---------------------------------------------------------------------------
 
 def main():
+    setup_logging()
     logger.info("=== gametimarr starting ===")
 
-    # Validate paths before anything else
     if not validate_paths():
         logger.error("Startup validation failed. Exiting.")
         sys.exit(1)
 
-    # Initialize database
     try:
         init_db(DB_PATH)
         logger.info(f"Database initialized at {DB_PATH}")
@@ -174,20 +217,9 @@ def main():
         logger.exception(f"Database initialization failed: {e}")
         sys.exit(1)
 
-    # Log a startup event so the UI shows something immediately
-    try:
-        log_event("App started")
-    except Exception:
-        pass
+    threading.Thread(target=scanner_loop, daemon=True, name="scanner").start()
+    threading.Thread(target=monitor_loop, daemon=True, name="monitor").start()
 
-    # Start background threads as daemons so they exit with the process
-    scanner_thread = threading.Thread(target=scanner_loop, daemon=True, name="scanner")
-    scanner_thread.start()
-
-    monitor_thread = threading.Thread(target=monitor_loop, daemon=True, name="monitor")
-    monitor_thread.start()
-
-    # Run the web server in the main thread
     logger.info(f"Web server starting on port {WEB_PORT}")
     uvicorn.run(web.app, host="0.0.0.0", port=WEB_PORT, log_level="warning")
 

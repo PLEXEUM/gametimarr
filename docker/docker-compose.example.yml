@@ -1,6 +1,6 @@
 services:
   gametimarr:
-    build: .
+    image: plexeum/gametimarr:latest
     container_name: gametimarr
     restart: unless-stopped
     environment:
@@ -8,20 +8,27 @@ services:
       - DB_PATH=/data/gametimarr.db
       - DOWNLOAD_PATH=/downloads
       - DESTINATION_PATH=/watch
+      - LOG_PATH=/logs
       - WEB_PORT=7667
     volumes:
-      # SQLite database (persistent)
       - ./data:/data
-
-      # qBittorrent's download folder. Must be the SAME host path that
-      # qBittorrent itself uses, mounted at the same location inside both
-      # containers, or the monitor won't find the completed files.
-      - /path/to/qbit/downloads:/downloads
-
-      # Destination folder for completed copies. On Windows, this must be
-      # a host path that's already been mounted from the UNC share (drive
-      # letter). On Linux, mount the CIFS share on the host first, then
-      # point this volume at the mount point.
-      - /path/to/sports/library:/watch
+      - ./logs:/logs
+      - qbit_downloads:/downloads
+      - sports_library:/watch
     ports:
-      - "8080:8080"
+      - "7667:7667"
+
+volumes:
+  qbit_downloads:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//192.168.0.65/UtorrentCloud2/qBit Files - Cloud 2"
+      o: "username=guest,password=,vers=2.1,uid=1000,gid=1000,file_mode=0777,dir_mode=0777"
+
+  sports_library:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//192.168.0.77/i/ChannelsDVR/Imports/TV/Sports"
+      o: "username=guest,password=,vers=2.1,uid=1000,gid=1000,file_mode=0777,dir_mode=0777"

@@ -1,12 +1,5 @@
 """
 web.py - Single-screen web UI.
-
-One HTML page, served inline. Three JSON endpoints back it:
-    GET  /status       - current state: settings, watchlist, log
-    POST /config       - save connection settings
-    POST /watchlist    - add or remove a team
-    POST /test/jackett - test a Torznab URL without saving
-    POST /test/qbit    - test qBittorrent without saving
 """
 
 from fastapi import FastAPI, Request
@@ -18,17 +11,12 @@ from app.database import (
     get_watchlist,
     add_team,
     remove_team,
-    get_recent_log,
 )
 from app.jackett import JackettClient
 from app.qbittorrent import QBittorrentClient
 
 app = FastAPI()
 
-
-# ---------------------------------------------------------------------------
-# The one page
-# ---------------------------------------------------------------------------
 
 INDEX_HTML = """
 <!DOCTYPE html>
@@ -72,10 +60,6 @@ INDEX_HTML = """
           padding: 6px 0; border-bottom: 1px solid #222; font-size: 13px; }
   .team:last-child { border-bottom: none; }
   .team .aliases { color: #666; font-size: 11px; margin-left: 8px; }
-  .log-entry { font-size: 12px; padding: 4px 0; border-bottom: 1px solid #1a1a1a;
-               font-family: "SF Mono", Monaco, monospace; }
-  .log-entry:last-child { border-bottom: none; }
-  .log-time { color: #666; margin-right: 8px; }
   .muted { color: #666; font-size: 12px; }
 </style>
 </head>
@@ -96,8 +80,8 @@ INDEX_HTML = """
 <h2>qBittorrent</h2>
 <div class="panel">
   <div class="row">
-    <div><label>Host</label><input type="text" id="qbit_host" placeholder="localhost"></div>
-    <div><label>Port</label><input type="text" id="qbit_port" placeholder="8080"></div>
+    <div><label>Host</label><input type="text" id="qbit_host" placeholder="192.168.0.XX"></div>
+    <div><label>Port</label><input type="text" id="qbit_port" placeholder="8012"></div>
   </div>
   <div class="row">
     <div><label>Username</label><input type="text" id="qbit_username" placeholder="admin"></div>
@@ -110,7 +94,7 @@ INDEX_HTML = """
 <h2>Destination</h2>
 <div class="panel">
   <label>Folder where completed games are copied</label>
-  <input type="text" id="destination_path" placeholder="/watch or \\\\server\\share\\Sports">
+  <input type="text" id="destination_path" placeholder="/watch">
 </div>
 
 <h2>Query Terms</h2>
@@ -134,17 +118,11 @@ INDEX_HTML = """
   <div id="watchlist"></div>
 </div>
 
-<h2>Recent Activity</h2>
-<div class="panel" id="log">
-  <div class="muted">No activity yet.</div>
-</div>
-
 <script>
 async function loadStatus() {
   const res = await fetch('/status');
   const data = await res.json();
 
-  // Settings
   const s = data.settings || {};
   document.getElementById('jackett_url').value = s.jackett_torznab_url || '';
   document.getElementById('qbit_host').value = s.qbit_host || '';
@@ -154,7 +132,6 @@ async function loadStatus() {
   document.getElementById('destination_path').value = s.destination_path || '';
   document.getElementById('query_terms').value = s.query_terms || '';
 
-  // Watchlist
   const wl = document.getElementById('watchlist');
   if (!data.watchlist || data.watchlist.length === 0) {
     wl.innerHTML = '<div class="muted">No teams yet.</div>';
@@ -164,16 +141,6 @@ async function loadStatus() {
         <span>${escapeHtml(t.team)}${t.aliases ? `<span class="aliases">(${escapeHtml(t.aliases)})</span>` : ''}</span>
         <button class="small" onclick="removeTeam('${escapeAttr(t.team)}')">Remove</button>
       </div>`
-    ).join('');
-  }
-
-  // Log
-  const log = document.getElementById('log');
-  if (!data.log || data.log.length === 0) {
-    log.innerHTML = '<div class="muted">No activity yet.</div>';
-  } else {
-    log.innerHTML = data.log.map(e =>
-      `<div class="log-entry"><span class="log-time">${formatTime(e.timestamp)}</span>${escapeHtml(e.message)}</div>`
     ).join('');
   }
 }
@@ -263,13 +230,6 @@ async function removeTeam(team) {
   loadStatus();
 }
 
-function formatTime(iso) {
-  try {
-    const d = new Date(iso + 'Z');
-    return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-  } catch { return iso; }
-}
-
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -280,7 +240,6 @@ function escapeAttr(s) {
   return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
-// Refresh every 10 seconds
 loadStatus();
 setInterval(loadStatus, 10000);
 </script>
@@ -289,10 +248,6 @@ setInterval(loadStatus, 10000);
 """
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return INDEX_HTML
@@ -300,17 +255,14 @@ async def index():
 
 @app.get("/status")
 async def status():
-    """Return current settings, watchlist, and recent log entries."""
     return JSONResponse({
         "settings": get_all_settings(),
         "watchlist": get_watchlist(),
-        "log": get_recent_log(),
     })
 
 
 @app.post("/config")
 async def save_config(request: Request):
-    """Save connection settings."""
     try:
         body = await request.json()
     except Exception as e:
@@ -335,7 +287,6 @@ async def save_config(request: Request):
 
 @app.post("/watchlist")
 async def update_watchlist(request: Request):
-    """Add or remove a team."""
     try:
         body = await request.json()
     except Exception as e:
@@ -360,7 +311,6 @@ async def update_watchlist(request: Request):
 
 @app.post("/test/jackett")
 async def test_jackett(request: Request):
-    """Test a Torznab URL without saving it."""
     try:
         body = await request.json()
     except Exception as e:
@@ -373,7 +323,6 @@ async def test_jackett(request: Request):
 
 @app.post("/test/qbit")
 async def test_qbit(request: Request):
-    """Test qBittorrent credentials without saving them."""
     try:
         body = await request.json()
     except Exception as e:

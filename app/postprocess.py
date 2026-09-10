@@ -1,60 +1,49 @@
 """
 postprocess.py - Completion monitor.
 
-Runs every 60 minutes. Finds completed torrents in the gametimarr category,
-copies their files to the destination folder, and marks them as copied.
-
-The original files stay in qBittorrent's download folder so seeding continues
-unaffected. This module only reads from there and writes to the destination.
+Finds completed torrents in the gametimarr category, copies their files to
+the destination folder, and marks them as copied.
 """
 
 import os
 import shutil
+import logging
 
 from app.database import (
     get_setting,
     get_uncopied,
     record_copy,
-    log_event,
 )
 from app.qbittorrent import QBittorrentClient, CATEGORY
 
+logger = logging.getLogger("gametimarr.postprocess")
 
-# Video file extensions worth copying. Everything else in a torrent (nfo,
-# samples, images) is skipped.
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".wmv"}
 
 
 async def check_completed() -> dict:
-    """
-    Run one monitor cycle. Returns a summary dict:
-        {"checked": int, "copied": int, "skipped": int, "errors": int}
-    """
     summary = {"checked": 0, "copied": 0, "skipped": 0, "errors": 0}
 
     destination = get_setting("destination_path", "") or ""
     if not destination:
-        log_event("Monitor skipped: destination path not configured")
+        logger.warning("Monitor skipped: destination path not configured")
         return summary
 
     if not os.path.isdir(destination):
-        log_event(f"Monitor skipped: destination not found ({destination})")
+        logger.warning(f"Monitor skipped: destination not found ({destination})")
         return summary
 
     qbit = QBittorrentClient()
     if not qbit.is_configured():
-        log_event("Monitor skipped: qBittorrent not configured")
+        logger.warning("Monitor skipped: qBittorrent not configured")
         return summary
 
-    # Ask qBittorrent for its current gametimarr torrents
     torrents = await qbit.get_torrents(filter_category=CATEGORY)
     if not torrents:
         return summary
 
-    # Build a hash -> torrent dict for quick lookup
     torrents_by_hash = {t.get("hash", ""): t for t in torrents}
 
-    # Fetch all grabbed rows that haven't been copied yet
     pending = get_uncopied()
     if not pending:
         return summary
@@ -67,36 +56,32 @@ async def check_completed() -> dict:
         guid = row.get("guid", "")
 
         if not torrent_hash:
-            # No hash means qBittorrent never confirmed the add. Skip.
             summary["skipped"] += 1
             continue
 
         torrent = torrents_by_hash.get(torrent_hash)
         if not torrent:
-            # Torrent not in qBittorrent anymore (deleted by user). Skip.
             summary["skipped"] += 1
             continue
 
         if torrent.get("progress", 0) < 1.0:
-            # Still downloading. Try again next cycle.
             continue
 
-        # Torrent is complete. Copy its files.
         try:
             copied_files = await _copy_torrent_files(qbit, torrent, destination)
             if copied_files:
                 record_copy(guid)
-                log_event(f"Copied: {title[:70]}")
+                logger.info(f"Copied: {title[:70]}")
                 summary["copied"] += 1
             else:
-                log_event(f"No video files found for: {title[:50]}")
+                logger.warning(f"No video files found for: {title[:50]}")
                 summary["skipped"] += 1
         except Exception as e:
-            log_event(f"Copy failed for {title[:40]}: {e}")
+            logger.error(f"Copy failed for {title[:40]}: {e}")
             summary["errors"] += 1
 
     if summary["copied"]:
-        log_event(f"Monitor complete: {summary['copied']} copied")
+        logger.info(f"Monitor complete: {summary['copied']} copied")
 
     return summary
 
@@ -106,13 +91,6 @@ async def check_completed() -> dict:
 # ---------------------------------------------------------------------------
 
 async def _copy_torrent_files(qbit: QBittorrentClient, torrent: dict, destination: str) -> list:
-    """
-    Copy the video files of a completed torrent to the destination folder.
-    Returns the list of destination paths that were written.
-
-    Hardlinks are attempted first when the source and destination are on the
-    same filesystem. Falls back to a full copy otherwise.
-    """
     torrent_hash = torrent.get("hash", "")
     save_path = torrent.get("save_path", "")
     torrent_name = torrent.get("name", "")
@@ -139,12 +117,8 @@ async def _copy_torrent_files(qbit: QBittorrentClient, torrent: dict, destinatio
         if not os.path.isfile(source):
             continue
 
-        # Flatten the path: use only the filename, not any subdirectories the
-        # torrent may have created.
         filename = os.path.basename(rel_name)
 
-        # Prefix with the torrent name to keep things identifiable, unless the
-        # filename already starts with it.
         if not filename.lower().startswith(torrent_name.lower()[:20]):
             filename = f"{_safe_filename(torrent_name)} - {filename}"
 
@@ -158,10 +132,6 @@ async def _copy_torrent_files(qbit: QBittorrentClient, torrent: dict, destinatio
 
 
 def _hardlink_or_copy(source: str, target: str) -> None:
-    """
-    Try to hardlink source to target. Fall back to copying if the filesystems
-    differ or hardlinks aren't supported.
-    """
     try:
         os.link(source, target)
         return
@@ -172,7 +142,6 @@ def _hardlink_or_copy(source: str, target: str) -> None:
 
 
 def _unique_path(path: str) -> str:
-    """If the path exists, append (1), (2), etc. until it doesn't."""
     if not os.path.exists(path):
         return path
 
@@ -186,7 +155,6 @@ def _unique_path(path: str) -> str:
 
 
 def _safe_filename(name: str) -> str:
-    """Strip characters that are illegal in Windows filenames."""
     invalid = '<>:"/\\|?*'
     for ch in invalid:
         name = name.replace(ch, "_")
