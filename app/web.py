@@ -155,6 +155,7 @@ async function loadStatus() {
       </div>`;
     }).join('');
   }
+}
 
 async function saveConfig() {
   const status = document.getElementById('save_status');
