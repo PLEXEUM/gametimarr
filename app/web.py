@@ -118,20 +118,27 @@ INDEX_HTML = """
   <div id="watchlist"></div>
 </div>
 
-<script>
+let initialLoadDone = false;
+
 async function loadStatus() {
   const res = await fetch('/status');
   const data = await res.json();
 
-  const s = data.settings || {};
-  document.getElementById('jackett_url').value = s.jackett_torznab_url || '';
-  document.getElementById('qbit_host').value = s.qbit_host || '';
-  document.getElementById('qbit_port').value = s.qbit_port || '';
-  document.getElementById('qbit_username').value = s.qbit_username || '';
-  document.getElementById('qbit_password').value = s.qbit_password || '';
-  document.getElementById('destination_path').value = s.destination_path || '';
-  document.getElementById('query_terms').value = s.query_terms || '';
+  // Only populate the settings fields once, on the very first load.
+  // After that, never touch them again, so typing isn't interrupted.
+  if (!initialLoadDone) {
+    const s = data.settings || {};
+    document.getElementById('jackett_url').value = s.jackett_torznab_url || '';
+    document.getElementById('qbit_host').value = s.qbit_host || '';
+    document.getElementById('qbit_port').value = s.qbit_port || '';
+    document.getElementById('qbit_username').value = s.qbit_username || '';
+    document.getElementById('qbit_password').value = s.qbit_password || '';
+    document.getElementById('destination_path').value = s.destination_path || '';
+    document.getElementById('query_terms').value = s.query_terms || '';
+    initialLoadDone = true;
+  }
 
+  // Always refresh the watchlist (it's not editable inline, so it's safe).
   const wl = document.getElementById('watchlist');
   if (!data.watchlist || data.watchlist.length === 0) {
     wl.innerHTML = '<div class="muted">No teams yet.</div>';
