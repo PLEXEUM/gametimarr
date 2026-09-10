@@ -114,6 +114,7 @@ INDEX_HTML = """
   <div class="row">
     <div><input type="text" id="new_team" placeholder="Team name"></div>
     <div><input type="text" id="new_aliases" placeholder="Aliases (comma-separated)"></div>
+    <div><input type="text" id="new_sport" placeholder="Sport (NCAAF, NCAAB, MLB...)"></div>
     <button onclick="addTeam()">Add</button>
   </div>
   <div id="watchlist"></div>
@@ -144,14 +145,16 @@ async function loadStatus() {
   if (!data.watchlist || data.watchlist.length === 0) {
     wl.innerHTML = '<div class="muted">No teams yet.</div>';
   } else {
-    wl.innerHTML = data.watchlist.map(t =>
-      `<div class="team">
-        <span>${escapeHtml(t.team)}${t.aliases ? `<span class="aliases">(${escapeHtml(t.aliases)})</span>` : ''}</span>
+    wl.innerHTML = data.watchlist.map(t => {
+      const parts = [escapeHtml(t.team)];
+      if (t.aliases) parts.push(`<span class="aliases">(${escapeHtml(t.aliases)})</span>`);
+      if (t.sport) parts.push(`<span class="aliases">[${escapeHtml(t.sport)}]</span>`);
+      return `<div class="team">
+        <span>${parts.join(' ')}</span>
         <button class="small" onclick="removeTeam('${escapeAttr(t.team)}')">Remove</button>
-      </div>`
-    ).join('');
+      </div>`;
+    }).join('');
   }
-}
 
 async function saveConfig() {
   const status = document.getElementById('save_status');
@@ -220,15 +223,17 @@ async function testQbit() {
 async function addTeam() {
   const team = document.getElementById('new_team').value.trim();
   const aliases = document.getElementById('new_aliases').value.trim();
+  const sport = document.getElementById('new_sport').value.trim();
   if (!team) return;
 
   await fetch('/watchlist', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'add', team, aliases}),
+    body: JSON.stringify({action: 'add', team, aliases, sport}),
   });
   document.getElementById('new_team').value = '';
   document.getElementById('new_aliases').value = '';
+  document.getElementById('new_sport').value = '';
   loadStatus();
 }
 
@@ -347,7 +352,8 @@ async def update_watchlist(request: Request):
 
     if action == "add":
         aliases = (body.get("aliases") or "").strip()
-        add_team(team, aliases)
+        sport = (body.get("sport") or "").strip()
+        add_team(team, aliases, sport)
     elif action == "remove":
         remove_team(team)
     else:

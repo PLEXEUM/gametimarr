@@ -56,6 +56,7 @@ def matches_date(title: str) -> bool:
 # Team logic
 # ---------------------------------------------------------------------------
 
+
 def matches_team(title: str) -> bool:
     entries = get_watchlist()
     if not entries:
@@ -64,6 +65,10 @@ def matches_team(title: str) -> bool:
     title_lower = title.lower()
 
     for entry in entries:
+        sport = entry.get("sport", "").strip().lower()
+        if sport and not title_lower.startswith(sport + " "):
+            continue
+
         team = entry.get("team", "").strip().lower()
         if team and team in title_lower:
             return True
@@ -75,7 +80,6 @@ def matches_team(title: str) -> bool:
                 return True
 
     return False
-
 
 # ---------------------------------------------------------------------------
 # Scan orchestration
