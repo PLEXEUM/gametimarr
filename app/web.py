@@ -97,12 +97,6 @@ INDEX_HTML = """
   <input type="text" id="destination_path" placeholder="/watch">
 </div>
 
-<h2>Query Terms</h2>
-<div class="panel">
-  <label>Comma-separated broad search terms</label>
-  <input type="text" id="query_terms" placeholder="NFL, NCAAF, MLB, NBA, NHL">
-</div>
-
 <h2>Manual Run</h2>
 <div class="panel">
   <button onclick="runScan()">Run Scan Now</button>
@@ -142,7 +136,6 @@ async function loadStatus() {
     document.getElementById('qbit_username').value = s.qbit_username || '';
     document.getElementById('qbit_password').value = s.qbit_password || '';
     document.getElementById('destination_path').value = s.destination_path || '';
-    document.getElementById('query_terms').value = s.query_terms || '';
     initialLoadDone = true;
   }
 
@@ -172,7 +165,6 @@ async function saveConfig() {
     qbit_username: document.getElementById('qbit_username').value,
     qbit_password: document.getElementById('qbit_password').value,
     destination_path: document.getElementById('destination_path').value,
-    query_terms: document.getElementById('query_terms').value,
   };
 
   const res = await fetch('/config', {
@@ -331,7 +323,6 @@ async def save_config(request: Request):
         "qbit_username",
         "qbit_password",
         "destination_path",
-        "query_terms",
     }
 
     for key, value in body.items():

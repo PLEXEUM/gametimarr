@@ -25,7 +25,6 @@ from app.qbittorrent import QBittorrentClient
 
 logger = logging.getLogger("gametimarr.scanner")
 
-DEFAULT_QUERIES = ["NFL", "NCAAF", "MLB", "NBA", "NHL"]
 DATE_PATTERN = re.compile(r"\b(\d{2}\.\d{2}\.\d{4})\b")
 
 
@@ -100,8 +99,42 @@ async def scan_once() -> dict:
 
     expire_old_grabs()
 
-    queries_raw = get_setting("query_terms", "")
-    queries = [q.strip() for q in queries_raw.split(",") if q.strip()] or DEFAULT_QUERIES
+    
+    # Build query terms from the watchlist: each team name plus each alias.
+    watchlist = get_watchlist()
+    if not watchlist:
+        logger.info("Scan skipped: watchlist is empty")
+        return summary
+
+    query_terms = []
+    for entry in watchlist:
+        team = entry.get("team", "").strip()
+        if team:
+            query_terms.append(team)
+
+        aliases = entry.get("aliases", "")
+        for alias in aliases.split(","):
+            alias = alias.strip()
+            if alias:
+                query_terms.append(alias)
+
+    # Deduplicate query terms (in case a team name is also an alias)
+    query_terms = list(dict.fromkeys(query_terms))
+
+    logger.info(f"Queries this scan: {query_terms}")
+
+    # Collect all releases across queries, dedup by GUID in memory
+    seen_guids = set()
+    candidates = []
+
+    for query in query_terms:
+        releases = await jackett.recent_releases(query)
+        for release in releases:
+            guid = release.get("guid", "")
+            if not guid or guid in seen_guids:
+                continue
+            seen_guids.add(guid)
+            candidates.append(release)
 
     seen_guids = set()
     candidates = []
