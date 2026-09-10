@@ -42,7 +42,7 @@ SCAN_INTERVAL = 90
 MONITOR_INTERVAL = 60
 
 # Web server port
-WEB_PORT = int(os.environ.get("WEB_PORT", "8080"))
+WEB_PORT = int(os.environ.get("WEB_PORT", "7667"))
 
 
 # ---------------------------------------------------------------------------

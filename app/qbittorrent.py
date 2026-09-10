@@ -26,7 +26,7 @@ class QBittorrentClient:
         # Config is read fresh from settings on each instance, so changes in
         # the UI take effect on the next scan without a restart.
         self.host = get_setting("qbit_host", "localhost") or "localhost"
-        self.port = get_setting("qbit_port", "8080") or "8080"
+        self.port = get_setting("qbit_port", "8012") or "8012"
         self.username = get_setting("qbit_username", "admin") or "admin"
         self.password = get_setting("qbit_password", "") or ""
 

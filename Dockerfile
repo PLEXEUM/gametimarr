@@ -14,7 +14,7 @@ COPY app/ ./app/
 RUN mkdir -p /data
 
 # Expose the web UI port
-EXPOSE 8080
+EXPOSE 7667
 
 # Run the app
 CMD ["python", "-m", "app.main"]
