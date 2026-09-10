@@ -1,40 +1,19 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-.venv
 *.egg-info/
-dist/
-build/
+.venv/
+venv/
 
-# Database
-*.db
-*.sqlite3
-*.sqlite
-config/*.db
-
-# Logs
-logs/
-*.log
-
-# Docker
+# Local config
 .env
-docker-compose.override.yml
+
+# Data
+data/*.db
+data/*.db-journal
 
 # IDE
 .vscode/
 .idea/
 *.swp
-*.swo
 .DS_Store
-Thumbs.db
-
-# Secrets
-*.key
-*.pem
-*.crt

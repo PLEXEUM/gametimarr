@@ -1,499 +1,196 @@
-from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
-from typing import List, Optional
+"""
+main.py - Entry point for gametimarr.
+
+Startup sequence:
+    1. Read environment variables.
+    2. Configure logging.
+    3. Validate mounted paths (fail fast if misconfigured).
+    4. Initialize the database.
+    5. Start scanner thread (every 90 minutes).
+    6. Start monitor thread (every 60 minutes).
+    7. Run the web server on port 8080.
+
+All three run inside one container. They share the same SQLite connection
+(thread-safe via a lock in database.py).
+"""
+
 import os
-import json
+import sys
+import time
 import asyncio
-from datetime import datetime
+import logging
+import threading
 
-from app.utils.logger import setup_logger, get_logger
-from app.utils.database import init_db, get_connection, get_setting, set_setting
-from app.core.espn_scraper import ESPNScraper
-from app.core.prowlarr import ProwlarrClient
-from app.core.jackett import JackettClient
-from app.core.qbittorrent import QBittorrentClient
-from app.core.file_manager import FileManager
-from app.core.scheduler import start_scheduler, stop_scheduler, get_next_run_time, run_scheduled_search
+import uvicorn
 
-# Initialize
-init_db()
-setup_logger(os.getenv("LOG_LEVEL", "INFO"))
-logger = get_logger()
-logger.info("Gametimarr starting up...")
-
-app = FastAPI(title="Gametimarr", version="0.1.0")
-templates = Jinja2Templates(directory="app/web/templates")
-
-# Start scheduler on startup
-start_scheduler()
+from app.database import init_db, log_event
+from app.scanner import scan_once
+from app.postprocess import check_completed
+from app import web
 
 
-# ============ MODELS ============
+# ---------------------------------------------------------------------------
+# Configuration from environment
+# ---------------------------------------------------------------------------
 
-class SearchRequest(BaseModel):
-    game_ids: List[int]
+DB_PATH = os.environ.get("DB_PATH", "/data/gametimarr.db")
+DOWNLOAD_PATH = os.environ.get("DOWNLOAD_PATH", "/downloads")
+DESTINATION_PATH = os.environ.get("DESTINATION_PATH", "/watch")
 
-class ProwlarrTestRequest(BaseModel):
-    url: str
-    api_key: str
+# Intervals in minutes
+SCAN_INTERVAL = 90
+MONITOR_INTERVAL = 60
 
-class JackettTestRequest(BaseModel):
-    torznab_url: str
-
-class SettingsRequest(BaseModel):
-    thesportsdb_api_key: Optional[str] = None  # Kept for backward compatibility
-    prowlarr_url: Optional[str] = None
-    prowlarr_api_key: Optional[str] = None
-    jackett_torznab_url: Optional[str] = None
-    qbit_host: Optional[str] = None
-    qbit_port: Optional[str] = None
-    qbit_username: Optional[str] = None
-    qbit_password: Optional[str] = None
-    search_schedule: Optional[str] = None
-    sport_folders: Optional[str] = None
+# Web server port
+WEB_PORT = int(os.environ.get("WEB_PORT", "8080"))
 
 
-# ============ FRONTEND ============
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    """Single page application."""
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-# ============ API - SCHEDULE ============
-
-@app.get("/api/schedule")
-async def get_schedule(sport: str = "NCAAF", year: int = 2026):
-    """Get schedule for a sport and year from ESPN scraper."""
-    conn = get_connection()
-    
-    # Try to get from database first
-    games = conn.execute("""
-        SELECT g.id, g.event_date as date, g.event_time as time,
-               h.name as home, a.name as away,
-               g.status,
-               COALESCE(ug.status, 'wanted') as user_status
-        FROM games g
-        JOIN teams h ON g.home_team_id = h.id
-        JOIN teams a ON g.away_team_id = a.id
-        LEFT JOIN user_games ug ON g.id = ug.game_id
-        WHERE g.sport_id = (SELECT id FROM sports WHERE slug = ?)
-        AND g.year = ?
-        ORDER BY g.event_date
-    """, (sport, year)).fetchall()
-    
-    conn.close()
-    
-    if games:
-        result = []
-        for row in games:
-            result.append({
-                "id": row["id"],
-                "date": row["date"],
-                "time": row["time"],
-                "home": row["home"],
-                "away": row["away"],
-                "status": row["status"],
-                "user_status": row["user_status"]
-            })
-        return result
-    
-    # No data - sync from ESPN scraper
-    await sync_sport_from_espn(sport, year)
-    
-    # Try again after sync
-    conn = get_connection()
-    games = conn.execute("""
-        SELECT g.id, g.event_date as date, g.event_time as time,
-               h.name as home, a.name as away,
-               g.status,
-               COALESCE(ug.status, 'wanted') as user_status
-        FROM games g
-        JOIN teams h ON g.home_team_id = h.id
-        JOIN teams a ON g.away_team_id = a.id
-        LEFT JOIN user_games ug ON g.id = ug.game_id
-        WHERE g.sport_id = (SELECT id FROM sports WHERE slug = ?)
-        AND g.year = ?
-        ORDER BY g.event_date
-    """, (sport, year)).fetchall()
-    conn.close()
-    
-    if games:
-        result = []
-        for row in games:
-            result.append({
-                "id": row["id"],
-                "date": row["date"],
-                "time": row["time"],
-                "home": row["home"],
-                "away": row["away"],
-                "status": row["status"],
-                "user_status": row["user_status"]
-            })
-        return result
-    
-    return []
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("gametimarr")
 
 
-async def sync_sport_from_espn(sport_slug: str, year: int):
-    """Sync a sport from ESPN scraper."""
-    logger.info(f"Syncing {sport_slug} for {year} from ESPN scraper...")
-    
-    # Get or create sport
-    conn = get_connection()
-    sport = conn.execute(
-        "SELECT id FROM sports WHERE slug = ?", (sport_slug,)
-    ).fetchone()
-    
-    if not sport:
-        cursor = conn.execute(
-            "INSERT INTO sports (slug, name) VALUES (?, ?)",
-            (sport_slug, sport_slug)
-        )
-        conn.commit()
-        sport_id = cursor.lastrowid
+# ---------------------------------------------------------------------------
+# Startup validation
+# ---------------------------------------------------------------------------
+
+def validate_paths() -> bool:
+    """
+    Verify that the mounted paths exist and are usable. Return False if any
+    critical path is missing, so the container exits with a clear error.
+    """
+    ok = True
+
+    # Data directory must be writable (SQLite needs to create/update the DB)
+    data_dir = os.path.dirname(DB_PATH)
+    if not os.path.isdir(data_dir):
+        logger.error(f"Data directory does not exist: {data_dir}")
+        ok = False
+    elif not os.access(data_dir, os.W_OK):
+        logger.error(f"Data directory not writable: {data_dir}")
+        ok = False
     else:
-        sport_id = sport["id"]
-    
-    # Fetch events from ESPN scraper
-    scraper = ESPNScraper()
-    events = await scraper.get_events(sport_slug)
-    
-    events_added = 0
-    for event in events:
-        home_name = event.get("home_team")
-        away_name = event.get("away_team")
-        event_date = event.get("date")
-        event_time = event.get("time")
-        status = event.get("status", "Scheduled")
-        
-        if not home_name or not away_name or not event_date:
-            continue
-        
-        # Get or create home team
-        home = conn.execute(
-            "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
-            (home_name, sport_id)
-        ).fetchone()
-        if not home:
-            cursor = conn.execute(
-                "INSERT INTO teams (name, sport_id) VALUES (?, ?)",
-                (home_name, sport_id)
-            )
-            conn.commit()
-            home_id = cursor.lastrowid
-        else:
-            home_id = home["id"]
-        
-        # Get or create away team
-        away = conn.execute(
-            "SELECT id FROM teams WHERE name = ? AND sport_id = ?",
-            (away_name, sport_id)
-        ).fetchone()
-        if not away:
-            cursor = conn.execute(
-                "INSERT INTO teams (name, sport_id) VALUES (?, ?)",
-                (away_name, sport_id)
-            )
-            conn.commit()
-            away_id = cursor.lastrowid
-        else:
-            away_id = away["id"]
-        
-        # Insert or update game
-        conn.execute(
-            """INSERT OR REPLACE INTO games
-               (sport_id, home_team_id, away_team_id, event_date, event_time, year, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (sport_id, home_id, away_id, event_date, event_time, year, status)
-        )
-        events_added += 1
-    
-    conn.commit()
-    conn.close()
-    logger.info(f"Synced {events_added} events for {sport_slug}")
+        logger.info(f"Data directory OK: {data_dir}")
+
+    # Download path must exist and be readable (we read completed files)
+    if not os.path.isdir(DOWNLOAD_PATH):
+        logger.error(f"Download path does not exist: {DOWNLOAD_PATH}")
+        ok = False
+    elif not os.access(DOWNLOAD_PATH, os.R_OK):
+        logger.error(f"Download path not readable: {DOWNLOAD_PATH}")
+        ok = False
+    else:
+        logger.info(f"Download path OK: {DOWNLOAD_PATH}")
+
+    # Destination path must exist and be writable (we copy files into it)
+    if not os.path.isdir(DESTINATION_PATH):
+        logger.error(f"Destination path does not exist: {DESTINATION_PATH}")
+        ok = False
+    elif not os.access(DESTINATION_PATH, os.W_OK):
+        logger.error(f"Destination path not writable: {DESTINATION_PATH}")
+        ok = False
+    else:
+        logger.info(f"Destination path OK: {DESTINATION_PATH}")
+
+    return ok
 
 
-# ============ API - SEARCH ============
+# ---------------------------------------------------------------------------
+# Background threads
+# ---------------------------------------------------------------------------
 
-@app.post("/api/search")
-async def search_games(request: SearchRequest):
-    """Search for selected games."""
-    if not request.game_ids:
-        return {"success": False, "message": "No games selected"}
-    
-    logger.info(f"Searching for {len(request.game_ids)} games")
-    
-    conn = get_connection()
-    placeholders = ",".join("?" * len(request.game_ids))
-    games = conn.execute(f"""
-        SELECT g.id, g.event_date, g.event_time, 
-               h.name as home, a.name as away,
-               s.slug as sport
-        FROM games g
-        JOIN teams h ON g.home_team_id = h.id
-        JOIN teams a ON g.away_team_id = a.id
-        JOIN sports s ON g.sport_id = s.id
-        WHERE g.id IN ({placeholders})
-    """, request.game_ids).fetchall()
-    
-    if not games:
-        conn.close()
-        return {"success": False, "message": "No games found"}
-    
-    # Update status to 'requested' for each game
-    for game in games:
-        conn.execute("""
-            INSERT OR REPLACE INTO user_games (game_id, status, requested_at, search_query)
-            VALUES (?, 'requested', datetime('now'), ?)
-        """, (game["id"], f"{game['home']} vs {game['away']}"))
-    
-    conn.commit()
-    conn.close()
-    
-    # Start the actual search in background
-    asyncio.create_task(perform_search(games))
-    
-    return {
-        "success": True,
-        "message": f"Search started for {len(games)} games"
-    }
+def scanner_loop():
+    """
+    Run scan_once() every SCAN_INTERVAL minutes.
+    Runs in its own thread. Catches all exceptions so a scan failure never
+    kills the thread.
+    """
+    logger.info(f"Scanner thread started (interval: {SCAN_INTERVAL} min)")
 
+    # Small initial delay so the web server is up before the first scan
+    time.sleep(15)
 
-async def perform_search(games: list):
-    """Perform the actual search in the background."""
-    search_client = ProwlarrClient()
-    if not search_client.is_configured():
-        search_client = JackettClient()
-    
-    if not search_client.is_configured():
-        logger.warning("No search client configured")
-        return
-    
-    qbit = QBittorrentClient()
-    if not qbit.is_configured():
-        logger.warning("qBittorrent not configured")
-        return
-    
-    for game in games:
+    while True:
         try:
-            # Pass the full date in MM DD YYYY format
-            full_date = None
-            if game["event_date"]:
-                parts = game["event_date"].split("-")
-                if len(parts) == 3:
-                    full_date = f"{parts[1]} {parts[2]} {parts[0]}"  # MM DD YYYY
-            results = await search_client.search_sport_event(
-                game["home"],
-                game["away"],
-                full_date
-            )
-            
-            if results:
-                release = results[0]
-                download_url = await search_client.get_release_download_url(release)
-                
-                if download_url:
-                    result = await qbit.add_torrent(
-                        download_url,
-                        label=game["sport"]
-                    )
-                    
-                    if result.get("success"):
-                        conn = get_connection()
-                        conn.execute("""
-                            UPDATE user_games 
-                            SET status = 'requested',
-                                requested_at = datetime('now'),
-                                search_query = ?,
-                                torrent_hash = ?
-                            WHERE game_id = ?
-                        """, (f"{game['home']} vs {game['away']}", result.get("hash", ""), game["id"]))
-                        conn.commit()
-                        conn.close()
-                        logger.info(f"Download started for: {game['home']} vs {game['away']}")
-                    else:
-                        logger.error(f"Failed to add torrent for: {game['home']} vs {game['away']}")
-            else:
-                logger.info(f"No releases found for: {game['home']} vs {game['away']}")
-                
+            asyncio.run(scan_once())
         except Exception as e:
-            logger.error(f"Error searching {game['home']} vs {game['away']}: {e}")
+            logger.exception(f"Scanner error: {e}")
+            try:
+                log_event(f"Scanner error: {e}")
+            except Exception:
+                pass
+
+        time.sleep(SCAN_INTERVAL * 60)
 
 
-# ============ API - STATUS ============
+def monitor_loop():
+    """
+    Run check_completed() every MONITOR_INTERVAL minutes.
+    Runs in its own thread. Catches all exceptions so a monitor failure never
+    kills the thread.
+    """
+    logger.info(f"Monitor thread started (interval: {MONITOR_INTERVAL} min)")
 
-@app.get("/api/status")
-async def get_status():
-    """Get counts of games by status."""
-    conn = get_connection()
-    
-    wanted = conn.execute(
-        "SELECT COUNT(*) FROM user_games WHERE status = 'wanted'"
-    ).fetchone()[0]
-    requested = conn.execute(
-        "SELECT COUNT(*) FROM user_games WHERE status = 'requested'"
-    ).fetchone()[0]
-    downloaded = conn.execute(
-        "SELECT COUNT(*) FROM user_games WHERE status = 'downloaded'"
-    ).fetchone()[0]
-    
-    next_run = get_next_run_time()
-    
-    conn.close()
-    
-    return {
-        "wanted": wanted,
-        "requested": requested,
-        "downloaded": downloaded,
-        "next_run": next_run
-    }
+    # Offset from the scanner so they don't run at the same instant
+    time.sleep(30)
+
+    while True:
+        try:
+            asyncio.run(check_completed())
+        except Exception as e:
+            logger.exception(f"Monitor error: {e}")
+            try:
+                log_event(f"Monitor error: {e}")
+            except Exception:
+                pass
+
+        time.sleep(MONITOR_INTERVAL * 60)
 
 
-# ============ API - SETTINGS ============
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
-@app.get("/api/settings")
-async def get_settings():
-    """Get all settings."""
-    return {
-        "thesportsdb_api_key": get_setting("thesportsdb_api_key"),
-        "prowlarr_url": get_setting("prowlarr_url"),
-        "prowlarr_api_key": get_setting("prowlarr_api_key"),
-        "jackett_torznab_url": get_setting("jackett_torznab_url"),
-        "qbit_host": get_setting("qbit_host"),
-        "qbit_port": get_setting("qbit_port"),
-        "qbit_username": get_setting("qbit_username"),
-        "qbit_password": get_setting("qbit_password"),
-        "search_schedule": get_setting("search_schedule"),
-        "sport_folders": get_setting("sport_folders"),
-    }
+def main():
+    logger.info("=== gametimarr starting ===")
 
+    # Validate paths before anything else
+    if not validate_paths():
+        logger.error("Startup validation failed. Exiting.")
+        sys.exit(1)
 
-@app.post("/api/settings")
-async def save_settings(data: SettingsRequest):
-    """Save all settings."""
-    # Log what we're receiving
-    logger.info(f"=== SAVE SETTINGS CALLED ===")
-    logger.info(f"Settings payload: {data.dict()}")
-    
-    for key, value in data.dict().items():
-        if value is not None:
-            logger.info(f"  Saving: {key} = {value[:50] if value and len(value) > 50 else value}")
-            set_setting(key, value)
-    
-    start_scheduler()
-    logger.info("Settings saved")
-    return {"success": True}
-
-
-# ============ API - QBITTORRENT TEST ============
-
-class QbitTestRequest(BaseModel):
-    host: str
-    port: int
-    username: str
-    password: str
-
-
-@app.post("/api/qbit/test")
-async def test_qbit(data: QbitTestRequest):
-    """Test qBittorrent connection using provided credentials."""
-    qbit = QBittorrentClient()
-    result = await qbit.test_connection(
-        host=data.host,
-        port=data.port,
-        username=data.username,
-        password=data.password
-    )
-    return result
-
-# ============ API - PROWLARR TEST ============
-
-@app.post("/api/prowlarr/test")
-async def test_prowlarr(data: ProwlarrTestRequest):
-    """Test Prowlarr connection."""
-    if not data.url or not data.api_key:
-        return {"success": False, "message": "URL and API key are required"}
-    
-    import httpx
+    # Initialize database
     try:
-        url = data.url.rstrip("/") + "/api/v1/system/status"
-        headers = {"X-Api-Key": data.api_key}
-        
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            json_data = response.json()
-            
-            version = json_data.get("version", "unknown")
-            return {"success": True, "message": f"Connected to Prowlarr v{version}"}
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            return {"success": False, "message": "Authentication failed (check API key)"}
-        return {"success": False, "message": f"Server error: {e.response.status_code}"}
-    except httpx.ConnectError:
-        return {"success": False, "message": "Could not reach server (check URL)"}
+        init_db(DB_PATH)
+        logger.info(f"Database initialized at {DB_PATH}")
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.exception(f"Database initialization failed: {e}")
+        sys.exit(1)
 
-# ============ API - JACKETT (TORZNAB) TEST ============
-
-@app.post("/api/jackett/test")
-async def test_jackett(data: JackettTestRequest):
-    """Test Jackett Torznab connection."""
-    if not data.torznab_url:
-        return {"success": False, "message": "Torznab URL is required"}
-    
-    import httpx
+    # Log a startup event so the UI shows something immediately
     try:
-        # Add a test query to the URL
-        url = data.torznab_url
-        if "?" in url:
-            url += "&t=search&q=test&limit=1"
-        else:
-            url += "?t=search&q=test&limit=1"
-        
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            
-            # Check if it looks like a valid Torznab response (XML with RSS)
-            text = response.text.lower()
-            if "rss" in text and "item" in text:
-                return {"success": True, "message": "Connected to Jackett (Torznab)"}
-            elif "error" in text:
-                return {"success": False, "message": "Authentication failed (check API key)"}
-            else:
-                return {"success": True, "message": "Connected to Jackett (Torznab)"}
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            return {"success": False, "message": "Authentication failed (check API key)"}
-        return {"success": False, "message": f"Server error: {e.response.status_code}"}
-    except httpx.ConnectError:
-        return {"success": False, "message": "Could not reach server (check URL)"}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+        log_event("App started")
+    except Exception:
+        pass
 
-# ============ API - FORCE SYNC ============
+    # Start background threads as daemons so they exit with the process
+    scanner_thread = threading.Thread(target=scanner_loop, daemon=True, name="scanner")
+    scanner_thread.start()
 
-@app.post("/api/sync/{sport}")
-async def sync_sport(sport: str, year: int = 2026):
-    """Force sync a sport from ESPN scraper."""
-    await sync_sport_from_espn(sport, year)
-    return {"success": True, "message": f"Synced {sport} for {year}"}
+    monitor_thread = threading.Thread(target=monitor_loop, daemon=True, name="monitor")
+    monitor_thread.start()
+
+    # Run the web server in the main thread
+    logger.info(f"Web server starting on port {WEB_PORT}")
+    uvicorn.run(web.app, host="0.0.0.0", port=WEB_PORT, log_level="warning")
 
 
-# ============ HEALTH ============
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    stop_scheduler()
-    logger.info("Gametimarr shutting down...")
+if __name__ == "__main__":
+    main()

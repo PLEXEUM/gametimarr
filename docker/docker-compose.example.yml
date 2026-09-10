@@ -1,0 +1,27 @@
+services:
+  gametimarr:
+    build: .
+    container_name: gametimarr
+    restart: unless-stopped
+    environment:
+      - TZ=America/New_York
+      - DB_PATH=/data/gametimarr.db
+      - DOWNLOAD_PATH=/downloads
+      - DESTINATION_PATH=/watch
+      - WEB_PORT=8080
+    volumes:
+      # SQLite database (persistent)
+      - ./data:/data
+
+      # qBittorrent's download folder. Must be the SAME host path that
+      # qBittorrent itself uses, mounted at the same location inside both
+      # containers, or the monitor won't find the completed files.
+      - /path/to/qbit/downloads:/downloads
+
+      # Destination folder for completed copies. On Windows, this must be
+      # a host path that's already been mounted from the UNC share (drive
+      # letter). On Linux, mount the CIFS share on the host first, then
+      # point this volume at the mount point.
+      - /path/to/sports/library:/watch
+    ports:
+      - "8080:8080"
