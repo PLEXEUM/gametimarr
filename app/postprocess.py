@@ -111,6 +111,12 @@ async def _copy_torrent_files(qbit: QBittorrentClient, torrent: dict, destinatio
     if not files:
         return []
 
+    logger.info(f"Copy debug: save_path = {save_path}")
+    logger.info(f"Copy debug: torrent name = {torrent_name}")
+    logger.info(f"Copy debug: {len(files)} files returned from qBittorrent")
+    for f in files:
+        logger.info(f"  file entry: name='{f.get('name','')}' size={f.get('size',0)}")
+
     copied = []
 
     for file_entry in files:
@@ -120,9 +126,13 @@ async def _copy_torrent_files(qbit: QBittorrentClient, torrent: dict, destinatio
 
         ext = os.path.splitext(rel_name)[1].lower()
         if ext not in VIDEO_EXTENSIONS:
+            logger.info(f"  skip: '{rel_name}' extension '{ext}' not in video list")
             continue
 
         source = os.path.join(save_path, rel_name)
+        logger.info(f"  checking source: {source}")
+        logger.info(f"  isfile: {os.path.isfile(source)}")
+
         if not os.path.isfile(source):
             continue
 
