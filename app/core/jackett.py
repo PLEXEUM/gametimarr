@@ -129,10 +129,12 @@ class JackettClient:
                 logger.info(f"[search_sport_event] Filtered to {len(filtered)} results matching date {date}")
                 results = filtered
             else:
-                logger.warning(f"[search_sport_event] No results matched date {date}, returning all {len(results)} results")
+                logger.warning(f"[search_sport_event] No results matched date {date}, returning empty list")
+                results = []  # ← Return empty, not all results
     
         logger.info(f"[search_sport_event] Final results: {len(results)}")
         return results
+    
 
     def _parse_torznab_response(self, content: bytes) -> list:
         """
