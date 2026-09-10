@@ -2,7 +2,7 @@
 scanner.py - The scan loop.
 
 Orchestrates one scan:
-    1. Query Jackett with each configured broad term.
+    1. Query Jackett for each watchlist team name and alias.
     2. Filter results by date (today or yesterday, local timezone).
     3. Filter results by team (case-insensitive substring against watchlist).
     4. Dedup by GUID.
@@ -14,7 +14,6 @@ import logging
 from datetime import date, timedelta
 
 from app.database import (
-    get_setting,
     get_watchlist,
     is_grabbed,
     record_grab,
@@ -128,18 +127,6 @@ async def scan_once() -> dict:
     candidates = []
 
     for query in query_terms:
-        releases = await jackett.recent_releases(query)
-        for release in releases:
-            guid = release.get("guid", "")
-            if not guid or guid in seen_guids:
-                continue
-            seen_guids.add(guid)
-            candidates.append(release)
-
-    seen_guids = set()
-    candidates = []
-
-    for query in queries:
         releases = await jackett.recent_releases(query)
         for release in releases:
             guid = release.get("guid", "")
