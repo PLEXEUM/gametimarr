@@ -103,6 +103,13 @@ INDEX_HTML = """
   <input type="text" id="query_terms" placeholder="NFL, NCAAF, MLB, NBA, NHL">
 </div>
 
+<h2>Manual Run</h2>
+<div class="panel">
+  <button onclick="runScan()">Run Scan Now</button>
+  <button onclick="runMonitor()">Run Monitor Now</button>
+  <div class="status" id="run_status"></div>
+</div>
+
 <div style="margin-top: 16px;">
   <button class="primary" onclick="saveConfig()">Save Settings</button>
   <span class="status" id="save_status"></span>
@@ -242,6 +249,44 @@ async function removeTeam(team) {
   loadStatus();
 }
 
+async function runScan() {
+  const status = document.getElementById('run_status');
+  status.textContent = 'Running scan...';
+  status.className = 'status';
+
+  const res = await fetch('/run/scan', { method: 'POST' });
+  const data = await res.json();
+
+  if (data.success) {
+    const r = data.result;
+    status.textContent = `Scan done: ${r.items} items, ${r.matched} matched, ${r.grabbed} grabbed`;
+    status.className = 'status ok';
+  } else {
+    status.textContent = 'Error: ' + data.error;
+    status.className = 'status err';
+  }
+  setTimeout(() => status.textContent = '', 15000);
+}
+
+async function runMonitor() {
+  const status = document.getElementById('run_status');
+  status.textContent = 'Running monitor...';
+  status.className = 'status';
+
+  const res = await fetch('/run/monitor', { method: 'POST' });
+  const data = await res.json();
+
+  if (data.success) {
+    const r = data.result;
+    status.textContent = `Monitor done: ${r.copied} copied, ${r.skipped} skipped`;
+    status.className = 'status ok';
+  } else {
+    status.textContent = 'Error: ' + data.error;
+    status.className = 'status err';
+  }
+  setTimeout(() => status.textContent = '', 15000);
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -347,3 +392,22 @@ async def test_qbit(request: Request):
         password=body.get("password"),
     )
     return JSONResponse(result)
+
+@app.post("/run/scan")
+async def run_scan():
+    from app.scanner import scan_once
+    try:
+        result = await scan_once()
+        return JSONResponse({"success": True, "result": result})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)})
+
+
+@app.post("/run/monitor")
+async def run_monitor():
+    from app.postprocess import check_completed
+    try:
+        result = await check_completed()
+        return JSONResponse({"success": True, "result": result})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)})
