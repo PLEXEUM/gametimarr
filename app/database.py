@@ -49,9 +49,16 @@ def _create_tables() -> None:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS watchlist (
                 team    TEXT PRIMARY KEY,
-                aliases TEXT
+                aliases TEXT,
+                sport   TEXT DEFAULT ''
             )
         """)
+
+        # If the table already existed from a previous version, add the sport column.
+        cur.execute("PRAGMA table_info(watchlist)")
+        columns = [row[1] for row in cur.fetchall()]
+        if "sport" not in columns:
+            cur.execute("ALTER TABLE watchlist ADD COLUMN sport TEXT DEFAULT ''")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS grabbed (
@@ -102,20 +109,28 @@ def get_all_settings() -> dict:
 def get_watchlist() -> list:
     with _lock:
         cur = _conn.cursor()
-        cur.execute("SELECT team, aliases FROM watchlist ORDER BY team")
-        return [{"team": row["team"], "aliases": row["aliases"] or ""} for row in cur.fetchall()]
+        cur.execute("SELECT team, aliases, sport FROM watchlist ORDER BY team")
+        return [
+            {
+                "team": row["team"],
+                "aliases": row["aliases"] or "",
+                "sport": row["sport"] or "",
+            }
+            for row in cur.fetchall()
+        ]
 
-
-def add_team(team: str, aliases: str = "") -> None:
+def add_team(team: str, aliases: str = "", sport: str = "") -> None:
     team = team.strip()
     if not team:
         return
     with _lock:
         cur = _conn.cursor()
         cur.execute("""
-            INSERT INTO watchlist (team, aliases) VALUES (?, ?)
-            ON CONFLICT(team) DO UPDATE SET aliases = excluded.aliases
-        """, (team, aliases.strip()))
+            INSERT INTO watchlist (team, aliases, sport) VALUES (?, ?, ?)
+            ON CONFLICT(team) DO UPDATE SET
+                aliases = excluded.aliases,
+                sport = excluded.sport
+        """, (team, aliases.strip(), sport.strip()))
         _conn.commit()
 
 
