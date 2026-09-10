@@ -4,11 +4,11 @@ qbittorrent.py - qBittorrent API v2 client.
 
 import logging
 import httpx
-import asyncio
 import re
 from urllib.parse import urljoin
 
 from app.database import get_setting
+from app.bencode import get_torrent_info_hash
 
 logger = logging.getLogger("gametimarr.qbittorrent")
 
@@ -93,12 +93,38 @@ class QBittorrentClient:
     # Public: add torrent
     # -----------------------------------------------------------------------
 
-    async def add_torrent(self, torrent_url: str, label: str = CATEGORY) -> dict:
+    async def add_torrent(self, torrent_url: str, label: str = CATEGORY, expected_title: str = "") -> dict:
+        """
+        Add a torrent by URL (magnet or .torrent HTTP URL).
+
+        For .torrent URLs, fetches the file first, computes the info-hash,
+        then sends the URL to qBittorrent. The hash is returned directly,
+        no lookup needed.
+        """
         if not await self._login():
             return {"success": False, "error": "Not logged in"}
 
-        url = urljoin(self.base_url, "/api/v2/torrents/add")
+        torrent_hash = ""
 
+        # If it's a magnet, parse the hash directly
+        if "magnet:" in torrent_url:
+            match = re.search(r"btih:([a-fA-F0-9]{40})", torrent_url)
+            if match:
+                torrent_hash = match.group(1).lower()
+
+        # If it's an HTTP URL, fetch the .torrent and compute the info-hash
+        elif torrent_url.startswith("http"):
+            try:
+                async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                    resp = await client.get(torrent_url)
+                    resp.raise_for_status()
+                    torrent_bytes = resp.content
+                torrent_hash = get_torrent_info_hash(torrent_bytes)
+            except Exception as e:
+                logger.error(f"Failed to fetch .torrent for hashing: {e}")
+
+        # Send to qBittorrent
+        url = urljoin(self.base_url, "/api/v2/torrents/add")
         data = {"urls": torrent_url}
         if label:
             data["category"] = label
@@ -111,27 +137,7 @@ class QBittorrentClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-        torrent_hash = await self._find_hash_by_url(torrent_url)
         return {"success": True, "hash": torrent_hash}
-
-    # -----------------------------------------------------------------------
-    # Internal: hash lookup
-    # -----------------------------------------------------------------------
-
-    async def _find_hash_by_url(self, torrent_url: str) -> str:
-        if "magnet:" in torrent_url:
-            match = re.search(r"btih:([a-fA-F0-9]{40})", torrent_url)
-            if match:
-                return match.group(1).lower()
-
-        await asyncio.sleep(1)
-
-        torrents = await self.get_torrents(filter_category=CATEGORY)
-        if not torrents:
-            return ""
-
-        torrents.sort(key=lambda t: t.get("added_on", 0), reverse=True)
-        return torrents[0].get("hash", "")
 
     # -----------------------------------------------------------------------
     # Public: query torrents
