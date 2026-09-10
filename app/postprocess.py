@@ -44,7 +44,13 @@ async def check_completed() -> dict:
 
     torrents_by_hash = {t.get("hash", ""): t for t in torrents}
 
+    logger.info(f"Monitor: {len(torrents)} gametimarr torrents in qBittorrent")
+    for t in torrents:
+        logger.info(f"  qbit hash={t.get('hash','')[:12]}... name={t.get('name','')[:60]}")
+
     pending = get_uncopied()
+    logger.info(f"Monitor: {len(pending)} rows pending copy in DB")
+
     if not pending:
         return summary
 
@@ -56,15 +62,18 @@ async def check_completed() -> dict:
         guid = row.get("guid", "")
 
         if not torrent_hash:
+            logger.info(f"Monitor skip: no hash for {title[:50]}")
             summary["skipped"] += 1
             continue
 
         torrent = torrents_by_hash.get(torrent_hash)
         if not torrent:
+            logger.info(f"Monitor skip: hash not in qBittorrent for {title[:50]}")
             summary["skipped"] += 1
             continue
 
         if torrent.get("progress", 0) < 1.0:
+            logger.info(f"Monitor skip: progress {torrent.get('progress')} for {title[:50]}")
             continue
 
         try:
