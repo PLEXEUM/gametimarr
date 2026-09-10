@@ -118,6 +118,7 @@ INDEX_HTML = """
   <div id="watchlist"></div>
 </div>
 
+<script>
 let initialLoadDone = false;
 
 async function loadStatus() {
@@ -176,6 +177,10 @@ async function saveConfig() {
   status.textContent = data.success ? 'Saved.' : 'Error: ' + data.error;
   status.className = 'status ' + (data.success ? 'ok' : 'err');
   setTimeout(() => status.textContent = '', 3000);
+
+  // Allow the fields to be refreshed from the server on the next poll
+  // in case anything was normalized.
+  initialLoadDone = false;
 }
 
 async function testJackett() {
@@ -253,7 +258,6 @@ setInterval(loadStatus, 10000);
 </body>
 </html>
 """
-
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
