@@ -117,6 +117,10 @@ async def scan_once() -> dict:
 
     summary["items"] = len(candidates)
 
+    logger.info(f"Watchlist at scan time: {[w['team'] for w in get_watchlist()]}")
+    for r in candidates[:5]:
+        logger.info(f"DEBUG title: {r.get('title','')[:90]}")
+    
     if not candidates:
         logger.info("Scan complete: no results from Jackett")
         return summary
