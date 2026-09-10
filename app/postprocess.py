@@ -111,11 +111,13 @@ async def _copy_torrent_files(qbit: QBittorrentClient, torrent: dict, destinatio
     if not files:
         return []
 
-    logger.info(f"Copy debug: save_path = {save_path}")
-    logger.info(f"Copy debug: torrent name = {torrent_name}")
-    logger.info(f"Copy debug: {len(files)} files returned from qBittorrent")
-    for f in files:
-        logger.info(f"  file entry: name='{f.get('name','')}' size={f.get('size',0)}")
+    # qBittorrent reports Windows paths (e.g. "G:\qBit Files - Cloud 2").
+    # Translate that root to the container's mount point (/downloads).
+    qbit_root = "G:\\qBit Files - Cloud 2"
+    if save_path.startswith(qbit_root):
+        normalized_save_path = "/downloads" + save_path[len(qbit_root):]
+    else:
+        normalized_save_path = save_path
 
     copied = []
 
@@ -126,14 +128,11 @@ async def _copy_torrent_files(qbit: QBittorrentClient, torrent: dict, destinatio
 
         ext = os.path.splitext(rel_name)[1].lower()
         if ext not in VIDEO_EXTENSIONS:
-            logger.info(f"  skip: '{rel_name}' extension '{ext}' not in video list")
             continue
 
-        source = os.path.join(save_path, rel_name)
-        logger.info(f"  checking source: {source}")
-        logger.info(f"  isfile: {os.path.isfile(source)}")
-
+        source = os.path.join(normalized_save_path, rel_name)
         if not os.path.isfile(source):
+            logger.warning(f"Source file not found: {source}")
             continue
 
         filename = os.path.basename(rel_name)
