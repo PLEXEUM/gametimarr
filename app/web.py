@@ -115,6 +115,7 @@ INDEX_HTML = """
     <div><input type="text" id="new_team" placeholder="Team name"></div>
     <div><input type="text" id="new_aliases" placeholder="Aliases (comma-separated)"></div>
     <div><input type="text" id="new_sport" placeholder="Sport (NCAAF, NCAAB, MLB...)"></div>
+    <div><input type="text" id="new_exclude_networks" placeholder="Exclude networks (ABC, CBS, NBC, FOX)"></div>
     <button onclick="addTeam()">Add</button>
   </div>
   <div id="watchlist"></div>
@@ -149,6 +150,7 @@ async function loadStatus() {
       const parts = [escapeHtml(t.team)];
       if (t.aliases) parts.push(`<span class="aliases">(${escapeHtml(t.aliases)})</span>`);
       if (t.sport) parts.push(`<span class="aliases">[${escapeHtml(t.sport)}]</span>`);
+      if (t.exclude_networks) parts.push(`<span class="aliases">{${escapeHtml(t.exclude_networks)}}</span>`);
       return `<div class="team">
         <span>${parts.join(' ')}</span>
         <button class="small" onclick="removeTeam('${escapeAttr(t.team)}')">Remove</button>
@@ -225,16 +227,18 @@ async function addTeam() {
   const team = document.getElementById('new_team').value.trim();
   const aliases = document.getElementById('new_aliases').value.trim();
   const sport = document.getElementById('new_sport').value.trim();
+  const exclude_networks = document.getElementById('new_exclude_networks').value.trim();
   if (!team) return;
 
   await fetch('/watchlist', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'add', team, aliases, sport}),
+    body: JSON.stringify({action: 'add', team, aliases, sport, exclude_networks}),
   });
   document.getElementById('new_team').value = '';
   document.getElementById('new_aliases').value = '';
   document.getElementById('new_sport').value = '';
+  document.getElementById('new_exclude_networks').value = '';
   loadStatus();
 }
 
@@ -354,7 +358,8 @@ async def update_watchlist(request: Request):
     if action == "add":
         aliases = (body.get("aliases") or "").strip()
         sport = (body.get("sport") or "").strip()
-        add_team(team, aliases, sport)
+        exclude_networks = (body.get("exclude_networks") or "").strip()
+        add_team(team, aliases, sport, exclude_networks)
     elif action == "remove":
         remove_team(team)
     else:

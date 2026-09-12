@@ -1,6 +1,6 @@
 # 🏈 Gametimarr
 
-**A self-hosted watcher for 720pier.ru that automatically grabs the games you care about and copies them to a folder you can watch from — while leaving the original torrent seeding.**
+**A self-hosted watcher for Torznab feed that automatically grabs the games you care about and copies them to a folder you can watch from — while leaving the original torrent seeding.**
 
 You give it a list of teams. It scans the tracker through Jackett every 90 minutes. When it finds a game from today or yesterday that matches a team on your list, it hands the torrent to qBittorrent. When the download finishes, it copies the video file to a destination folder. The seeding copy stays put.
 
@@ -11,6 +11,7 @@ You give it a list of teams. It scans the tracker through Jackett every 90 minut
 - Watches **Tracker** through Jackett's Torznab API, one query per team name and alias
 - **Filters by date** — only games dated today or yesterday (in your local timezone) are considered
 - **Filters by team** — case-insensitive substring match against your watchlist, with optional per-entry sport prefix (NCAAF, NCAAB, MLB, etc.) to avoid cross-sport false positives
+- **Filters by broadcast network** — each watchlist entry can exclude networks your DVR already records (e.g. `ABC, CBS, NBC, FOX`), so only games you can't record get grabbed
 - **Deduplicates by Torznab GUID** so the same game is never grabbed twice
 - Sends to **qBittorrent** with the `gametimarr` category
 - **Copies completed files** to a destination folder while the original stays seeding
@@ -114,6 +115,7 @@ In the **Watchlist** panel:
 - **Team** — the name that appears in the tracker's titles (e.g. `New York Yankees`, `South Florida`, `Syracuse`)
 - **Aliases** — optional, comma-separated search terms (e.g. `Yankees, NYY`)
 - **Sport** — optional, a prefix filter (e.g. `NCAAF`, `NCAAB`, `MLB`)
+- **Exclude networks** — optional, comma-separated networks your DVR can already record (e.g. `ABC, CBS, NBC, FOX`). Games on these networks are skipped. Leave empty to grab everything for this team.
 
 Click **Add**.
 
@@ -158,9 +160,19 @@ For each watchlist entry, the scanner checks:
 
 If either check fails, the entry is skipped and the next one is tried.
 
+### Network Filter
+
+Each watchlist entry can list networks to exclude — typically the broadcast networks your DVR can already record (`ABC`, `CBS`, `NBC`, `FOX`). The scanner extracts the network from the trailing bracket of the torrent title (the last token after the language list, e.g. `EN/ESPNU` → `ESPNU`, or `EN, NBC` → `NBC`).
+
+If the parsed network is in that team's exclude list, the release is skipped and logged. If the network can't be determined, the release is grabbed anyway — the filter never silently drops a game it doesn't understand.
+
+Leave the field empty for teams you want to grab regardless of network, such as out-of-market NFL games on broadcast networks your DVR can't receive.
+
+**To stop excluding a network later** (e.g. FOX becomes DRM-locked and your DVR can no longer record it), edit the exclude list on each watchlist entry that contains it and remove `FOX`.
+
 ### Query Strategy
 
-The scanner queries Jackett once per watchlist term — the team name plus each alias. This is necessary because 720pier's tracker search is token-based and doesn't respond to league abbreviations like `MLB` or `NFL`. Querying the actual team name (`Yankees`) returns the right games.
+The scanner queries Jackett once per watchlist term — the team name plus each alias. This is necessary because Torznab's Feed search is token-based and doesn't respond to league abbreviations like `MLB` or `NFL`. Querying the actual team name (`Yankees`) returns the right games.
 
 ---
 
@@ -205,11 +217,19 @@ Three common causes:
 
 1. **No games on the tracker for today or yesterday.** The filter is strict. If the season is over, or no games are scheduled, nothing matches.
 2. **Team name doesn't appear in the tracker's titles.** The tracker uses specific formats like `New York Yankees` (full name) or `Syracuse Orange` (with nickname). If your watchlist entry is just `Syracuse`, it'll match. If it's `Syracuse Football`, it won't. Use the shortest distinguishing term as the team name or add an alias.
-3. **Jackett isn't logged in to 720pier.** Test the Torznab URL in the UI. If the connection test fails, check Jackett's dashboard.
+3. **Jackett isn't logged in to 720pier.** Test the Torznab Feed URL in the UI. If the connection test fails, check Jackett's dashboard.
 
 ### Cross-sport false positives
 
 If you follow a college team that plays multiple sports, use the **sport** field to scope the entry. For example, `South Florida` with sport `NCAAF` will only match football games, not basketball (NCAAM) or any other sport.
+
+### A game was skipped but I wanted it
+
+Check the watchlist entry's **exclude networks** field. If the game aired on a network listed there, it was skipped intentionally. Remove that network from the field to grab it next time. Note that the skip happens at scan time, so a game already skipped won't be re-evaluated — it only affects future scans.
+
+### A game was grabbed that my DVR also recorded
+
+The network filter relies on the network appearing in the torrent title. If the title omits it, or the network is spelled differently than in your exclude list (e.g. `ACC Network` vs `ACCN`), the release won't match and will be grabbed. Check the log for the parsed network value and adjust the exclude list to match.
 
 ### The same game was grabbed twice
 
@@ -262,8 +282,8 @@ gametimarr/
 │   ├── __init__.py
 │   ├── main.py               # Entry point, threads, path validation
 │   ├── database.py           # SQLite schema and helpers
-│   ├── jackett.py            # Torznab client
-│   ├── scanner.py            # Scan loop, date/team/sport filters
+│   ├── jackett.py            # Torznab feed url
+│   ├── scanner.py            # Scan loop, date/team/sport/network filters
 │   ├── qbittorrent.py        # qBittorrent API v2 client
 │   ├── bencode.py            # Torrent info-hash extraction
 │   ├── postprocess.py        # Completion monitor, file copy

@@ -53,14 +53,47 @@ def matches_date(title: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Network logic
+# ---------------------------------------------------------------------------
+
+LANGUAGE_CODES = {"en", "de", "fr", "pt", "es", "it", "nl", "ru", "ja", "ko", "zh"}
+
+
+def parse_network(title: str) -> str:
+    """Extract the network from the trailing [...] bracket of a title.
+
+    Returns '' if no network can be determined.
+    """
+    match = re.search(r"\[([^\]]*)\]\s*$", title)
+    if not match:
+        return ""
+
+    contents = match.group(1)
+    tokens = re.split(r"[,/]", contents)
+    tokens = [t.strip() for t in tokens if t.strip()]
+
+    if not tokens:
+        return ""
+
+    candidate = tokens[-1]
+
+    # Reject language codes (EN, DE, FR, ...)
+    if len(candidate) <= 3 and candidate.lower() in LANGUAGE_CODES:
+        return ""
+
+    return candidate
+
+
+# ---------------------------------------------------------------------------
 # Team logic
 # ---------------------------------------------------------------------------
 
 
-def matches_team(title: str) -> bool:
+def matches_team(title: str):
+    """Return the matched watchlist entry, or None."""
     entries = get_watchlist()
     if not entries:
-        return False
+        return None
 
     title_lower = title.lower()
 
@@ -71,15 +104,15 @@ def matches_team(title: str) -> bool:
 
         team = entry.get("team", "").strip().lower()
         if team and team in title_lower:
-            return True
+            return entry
 
         aliases = entry.get("aliases", "")
         for alias in aliases.split(","):
             alias = alias.strip().lower()
             if alias and alias in title_lower:
-                return True
+                return entry
 
-    return False
+    return None
 
 # ---------------------------------------------------------------------------
 # Scan orchestration
@@ -154,8 +187,19 @@ async def scan_once() -> dict:
         title = release.get("title", "")
         if not matches_date(title):
             continue
-        if not matches_team(title):
+
+        matched_entry = matches_team(title)
+        if not matched_entry:
             continue
+
+        network = parse_network(title)
+        exclude_raw = matched_entry.get("exclude_networks", "") or ""
+        exclude_list = [n.strip().lower() for n in exclude_raw.split(",") if n.strip()]
+
+        if network and network.lower() in exclude_list:
+            logger.info(f"Skipped (network '{network}' in exclude list): {title[:70]}")
+            continue
+
         guid = release.get("guid", "")
         if is_grabbed(guid):
             continue
