@@ -170,6 +170,19 @@ Leave the field empty for teams you want to grab regardless of network, such as 
 
 **To stop excluding a network later** (e.g. FOX becomes DRM-locked and your DVR can no longer record it), edit the exclude list on each watchlist entry that contains it and remove `FOX`.
 
+- **Deduplicates by game** — stores the date and both team names for every grab, so the same game in a different quality (e.g. 4K vs 720p) is skipped
+
+### Game Filter
+
+Two releases of the same game — say a 4K upload and a 720p upload — have different Torznab GUIDs, so GUID dedup alone won't stop the second one. The scanner also builds a **game key** from the title: the date plus both team names, normalized (lowercase, ranking prefix stripped, sorted).
+
+- `12.09.2026 / (11) Oklahoma Sooners @ Michigan Wolverines` → `12.09.2026|michigan wolverines|oklahoma sooners`
+- `12.09.2026 / Oklahoma Sooners @ Michigan Wolverines` → same key
+
+If any release with that key has already been grabbed, the new one is skipped regardless of quality. The date is part of the key so that a playoff series — the same two teams on consecutive days — is treated as separate games.
+
+**Known limitation:** a same-day doubleheader (same two teams, same date, two games) produces the same key, so the second game would be skipped. This is rare, and not handled.
+
 ### Query Strategy
 
 The scanner queries Jackett once per watchlist term — the team name plus each alias. This is necessary because Torznab's Feed search is token-based and doesn't respond to league abbreviations like `MLB` or `NFL`. Querying the actual team name (`Yankees`) returns the right games.
@@ -235,6 +248,14 @@ The network filter relies on the network appearing in the torrent title. If the 
 
 This shouldn't happen because of the GUID dedup, but if it does, check whether the tracker re-posted the game with a different thread ID. GUIDs are based on the thread URL, so a re-post gets a new GUID and looks like a new game. The date and title would be identical though, so it's easy to spot in the qBittorrent list.
 
+### The same game was grabbed twice in different qualities
+
+This is prevented by the game filter, which keys on the date and both team names. If it happens anyway, check the log for the parsed game key on both grabs — a mismatch usually means the team names were normalized differently (e.g. an alias or a spelling variant between releases). Adding the variant as an alias on the watchlist entry will align them.
+
+### A game in a playoff series was skipped
+
+The game key includes the date, so consecutive games in a series are treated separately. If a game was skipped, check whether the tracker posted it with a date that doesn't match the title's own date field — the scanner reads the date from the title, and a mis-dated upload will produce a different key than expected.
+
 ---
 
 ## API Endpoints
@@ -266,7 +287,7 @@ The two background threads share an SQLite connection with `check_same_thread=Fa
 
 State lives in three places:
 
-- **SQLite** (`/data/gametimarr.db`) — settings, watchlist, dedup rows.
+- **SQLite** (`/data/gametimarr.db`) — settings, watchlist, and grab rows used for both GUID-level and game-level dedup.
 - **Log files** (`/logs/`) — daily rotating, 5-day retention.
 - **qBittorrent** — the actual torrents and their files.
 
@@ -281,9 +302,9 @@ gametimarr/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py               # Entry point, threads, path validation
-│   ├── database.py           # SQLite schema and helpers
+│   ├── database.py           # SQLite schema and helpers, grab dedup
 │   ├── jackett.py            # Torznab feed url
-│   ├── scanner.py            # Scan loop, date/team/sport/network filters
+│   ├── scanner.py            # Scan loop, date/team/sport/network/game filters
 │   ├── qbittorrent.py        # qBittorrent API v2 client
 │   ├── bencode.py            # Torrent info-hash extraction
 │   ├── postprocess.py        # Completion monitor, file copy

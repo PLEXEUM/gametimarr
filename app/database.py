@@ -69,9 +69,16 @@ def _create_tables() -> None:
                 title        TEXT,
                 torrent_hash TEXT,
                 grabbed_at   TEXT,
-                copied_at    TEXT
+                copied_at    TEXT,
+                game_key     TEXT
             )
         """)
+
+        # If the table already existed from a previous version, add missing columns.
+        cur.execute("PRAGMA table_info(grabbed)")
+        columns = [row[1] for row in cur.fetchall()]
+        if "game_key" not in columns:
+            cur.execute("ALTER TABLE grabbed ADD COLUMN game_key TEXT DEFAULT ''")
 
         _conn.commit()
 
@@ -157,13 +164,22 @@ def is_grabbed(guid: str) -> bool:
         return cur.fetchone() is not None
 
 
-def record_grab(guid: str, title: str, torrent_hash: str = "") -> None:
+def is_game_grabbed(game_key: str) -> bool:
+    if not game_key:
+        return False
+    with _lock:
+        cur = _conn.cursor()
+        cur.execute("SELECT 1 FROM grabbed WHERE game_key = ?", (game_key,))
+        return cur.fetchone() is not None
+
+
+def record_grab(guid: str, title: str, torrent_hash: str = "", game_key: str = "") -> None:
     with _lock:
         cur = _conn.cursor()
         cur.execute("""
-            INSERT OR REPLACE INTO grabbed (guid, title, torrent_hash, grabbed_at, copied_at)
-            VALUES (?, ?, ?, ?, NULL)
-        """, (guid, title, torrent_hash, _now_iso()))
+            INSERT OR REPLACE INTO grabbed (guid, title, torrent_hash, grabbed_at, copied_at, game_key)
+            VALUES (?, ?, ?, ?, NULL, ?)
+        """, (guid, title, torrent_hash, _now_iso(), game_key))
         _conn.commit()
 
 

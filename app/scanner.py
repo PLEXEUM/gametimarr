@@ -18,6 +18,7 @@ from app.database import (
     is_grabbed,
     record_grab,
     expire_old_grabs,
+    is_game_grabbed,
 )
 from app.jackett import JackettClient
 from app.qbittorrent import QBittorrentClient
@@ -83,6 +84,37 @@ def parse_network(title: str) -> str:
 
     return candidate
 
+
+def parse_teams(title: str) -> tuple:
+    """Extract the two team names from the title, normalized.
+
+    Returns (team_a, team_b) sorted alphabetically, or ("", "") if not found.
+    """
+    match = re.search(r" / (\d{2}\.\d{2}\.\d{4}) / (.+?) \[", title)
+    if not match:
+        return ("", "")
+
+    matchup = match.group(2)
+
+    if " @ " in matchup:
+        away, home = matchup.split(" @ ", 1)
+    elif " vs " in matchup:
+        away, home = matchup.split(" vs ", 1)
+    else:
+        return ("", "")
+
+    def normalize(name: str) -> str:
+        name = re.sub(r"^\(\d+\)\s*", "", name)   # strip (11)
+        return name.strip().lower()
+
+    teams = sorted([normalize(away), normalize(home)])
+    return (teams[0], teams[1])
+
+def build_game_key(date: str, team_a: str, team_b: str) -> str:
+    """Build the dedup key: date + both teams, sorted."""
+    if not date or not team_a or not team_b:
+        return ""
+    return f"{date}|{team_a}|{team_b}"
 
 # ---------------------------------------------------------------------------
 # Team logic
@@ -203,6 +235,15 @@ async def scan_once() -> dict:
         guid = release.get("guid", "")
         if is_grabbed(guid):
             continue
+
+        parsed_date = parse_date(title)
+        team_a, team_b = parse_teams(title)
+        game_key = build_game_key(parsed_date, team_a, team_b)
+
+        if game_key and is_game_grabbed(game_key):
+            logger.info(f"Skipped (game already grabbed): {title[:70]}")
+            continue
+
         matched.append(release)
 
     summary["matched"] = len(matched)
@@ -221,14 +262,18 @@ async def scan_once() -> dict:
             summary["errors"] += 1
             continue
 
-        record_grab(guid, title)
+        parsed_date = parse_date(title)
+        team_a, team_b = parse_teams(title)
+        game_key = build_game_key(parsed_date, team_a, team_b)
+
+        record_grab(guid, title, game_key=game_key)
 
         result = await qbit.add_torrent(download_url, label="gametimarr")
 
         if result.get("success"):
             torrent_hash = result.get("hash", "")
             if torrent_hash:
-                record_grab(guid, title, torrent_hash)
+                record_grab(guid, title, torrent_hash, game_key=game_key)
             logger.info(f"Grabbed: {title[:70]}")
             summary["grabbed"] += 1
         else:
