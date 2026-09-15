@@ -215,6 +215,8 @@ async def scan_once() -> dict:
         return summary
 
     matched = []
+    seen_game_keys = set()
+
     for release in candidates:
         title = release.get("title", "")
         if not matches_date(title):
@@ -240,9 +242,14 @@ async def scan_once() -> dict:
         team_a, team_b = parse_teams(title)
         game_key = build_game_key(parsed_date, team_a, team_b)
 
-        if game_key and is_game_grabbed(game_key):
-            logger.info(f"Skipped (game already grabbed): {title[:70]}")
-            continue
+        if game_key:
+            if is_game_grabbed(game_key):
+                logger.info(f"Skipped (game already grabbed): {title[:70]}")
+                continue
+            if game_key in seen_game_keys:
+                logger.info(f"Skipped (game already queued this scan): {title[:70]}")
+                continue
+            seen_game_keys.add(game_key)
 
         matched.append(release)
 
