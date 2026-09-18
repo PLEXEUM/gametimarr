@@ -117,6 +117,16 @@ def parse_teams(title: str) -> tuple:
     teams = sorted([normalize(away), normalize(home)])
     return (teams[0], teams[1], ranked)
 
+    def build_game_key(parsed_date: str, team_a: str, team_b: str) -> str:
+    """Build the dedup key: date + both teams.
+
+    Returns '' if any component is missing, which makes the caller
+    skip the game-key check for that release.
+    """
+    if not parsed_date or not team_a or not team_b:
+        return ""
+    return f"{parsed_date}|{team_a}|{team_b}"
+
 
 # ---------------------------------------------------------------------------
 # Team logic
