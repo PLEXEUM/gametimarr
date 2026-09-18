@@ -13,6 +13,7 @@ You give it a list of teams. It scans the tracker through Jackett every 90 minut
 - **Filters by team** — case-insensitive substring match against your watchlist, with optional per-entry sport prefix (NCAAF, NCAAB, MLB, etc.) to avoid cross-sport false positives
 - **Filters by broadcast network** — each watchlist entry can exclude networks your DVR already records (e.g. `ABC, CBS, NBC, FOX`), so only games you can't record get grabbed
 - **Grabs ranked CFB games** — add a watchlist entry with the team name `Top 25` and sport `NCAAF` to grab any college football game where at least one team is ranked
+- **Grabs NFL primetime games** — add a watchlist entry with the team name `ALL` and sport `NFL` to grab any NFL game, then use the exclude networks list to skip the ones your DVR can record
 - **Deduplicates by Torznab GUID** so the same game is never grabbed twice
 - Sends to **qBittorrent** with the `gametimarr` category
 - **Copies completed files** to a destination folder while the original stays seeding
@@ -130,6 +131,16 @@ This matches any title starting with `NCAAF ` where at least one team carries a 
 
 Click **Add**.
 
+To grab **NFL games on networks your DVR can't record** (Thursday Night Football on Prime, Monday Night Football on ESPN, and similar), add an entry with:
+
+- **Team** — `ALL`
+- **Sport** — `NFL` (required — the entry is ignored otherwise)
+- **Exclude networks** — the networks you *can* record, e.g. `ABC, CBS, NBC, FOX`
+
+This matches any NFL game, then skips the ones on your exclude list. Since most NFL games air on ABC/CBS/NBC/FOX, excluding those four leaves the streaming and cable primetime games.
+
+Click **Add**.
+
 ### 6. Test it
 
 Click **Run Scan Now** in the Manual Run panel. Watch the log:
@@ -182,6 +193,19 @@ A watchlist entry with the team name `Top 25` is a reserved keyword, not a team.
 The date filter, network filter, and game dedup all apply as normal. If the entry's sport is anything other than `NCAAF`, the entry is ignored and a warning is logged once per scan.
 
 **Note:** the rank is read from the title. If the tracker post omits the `(NN)` prefix, a ranked game will look unranked and won't match. This is a known limitation of title-based detection.
+
+### ALL Filter
+
+A watchlist entry with the team name `ALL` is a reserved keyword, not a team. It matches any title that:
+
+1. Starts with `NFL ` (so the sport must be `NFL`)
+2. Contains a parseable `Away @ Home` matchup
+
+Unlike `Top 25`, there is no ranking requirement — any NFL game matches. The network filter then does the real work: games on excluded networks are skipped, everything else is grabbed.
+
+The date filter and game dedup apply as normal. If the entry's sport is anything other than `NFL`, the entry is ignored and a warning is logged once per scan.
+
+**Note:** `ALL` is scoped to NFL. It queries Jackett for `NFL Football`, which is specific enough to return a usable result set. Other sports are not supported by this keyword.
 
 ### Network Filter
 
@@ -274,6 +298,17 @@ Three things to check:
 ### A game matched both a team entry and the Top 25 entry
 
 Both entries match the same release, but it's only grabbed once. The watchlist is evaluated in order, and the **first matching entry's** exclude list is used. If both entries have the same exclude networks — which is typical — there's no difference. If they differ, the earlier entry wins.
+
+### The ALL entry isn't grabbing anything
+
+Two things to check:
+
+1. **Sport must be `NFL`.** Any other value (or empty) causes the entry to be ignored, with a warning in the log.
+2. **The exclude list may be doing its job.** If every NFL game in the window is on a network you excluded, nothing will be grabbed — which is correct. Check the log for `Skipped (network ...)` lines.
+
+### The ALL entry is grabbing too much
+
+If you're getting games you can already record, add those networks to the exclude list. `ALL` grabs everything that isn't excluded, so the exclude list is the only thing narrowing it down.
 
 ### A game was grabbed that my DVR also recorded
 

@@ -148,6 +148,15 @@ def matches_team(title: str):
                 return entry
             continue
 
+        # Reserved keyword: ALL
+        if team_lower == "all":
+            if sport != "nfl":
+                continue  # invalid, already warned at query build
+            team_a, team_b, _ = parse_teams(title)
+            if team_a and team_b:
+                return entry
+            continue
+
         if team_lower and team_lower in title_lower:
             return entry
 
@@ -201,6 +210,16 @@ async def scan_once() -> dict:
                 )
                 continue
             query_terms.append("NCAAF")
+            continue
+
+        if team.lower() == "all":
+            if sport != "nfl":
+                logger.warning(
+                    "Ignoring 'ALL' entry: sport must be NFL (found: %r)",
+                    entry.get("sport", ""),
+                )
+                continue
+            query_terms.append("NFL Football")
             continue
 
         if team:
