@@ -12,6 +12,7 @@ You give it a list of teams. It scans the tracker through Jackett every 90 minut
 - **Filters by date** — only games dated today or yesterday (in your local timezone) are considered
 - **Filters by team** — case-insensitive substring match against your watchlist, with optional per-entry sport prefix (NCAAF, NCAAB, MLB, etc.) to avoid cross-sport false positives
 - **Filters by broadcast network** — each watchlist entry can exclude networks your DVR already records (e.g. `ABC, CBS, NBC, FOX`), so only games you can't record get grabbed
+- **Grabs ranked CFB games** — add a watchlist entry with the team name `Top 25` and sport `NCAAF` to grab any college football game where at least one team is ranked
 - **Deduplicates by Torznab GUID** so the same game is never grabbed twice
 - Sends to **qBittorrent** with the `gametimarr` category
 - **Copies completed files** to a destination folder while the original stays seeding
@@ -119,6 +120,16 @@ In the **Watchlist** panel:
 
 Click **Add**.
 
+To grab **ranked college football games** regardless of team, add an entry with:
+
+- **Team** — `Top 25`
+- **Sport** — `NCAAF` (required — the entry is ignored otherwise)
+- **Exclude networks** — same as any other entry
+
+This matches any title starting with `NCAAF ` where at least one team carries a `(NN)` ranking prefix.
+
+Click **Add**.
+
 ### 6. Test it
 
 Click **Run Scan Now** in the Manual Run panel. Watch the log:
@@ -159,6 +170,18 @@ For each watchlist entry, the scanner checks:
 2. The title must contain the team name or any alias, case-insensitive.
 
 If either check fails, the entry is skipped and the next one is tried.
+
+### Top 25 Filter
+
+A watchlist entry with the team name `Top 25` is a reserved keyword, not a team. It matches any title that:
+
+1. Starts with `NCAAF ` (so the sport must be `NCAAF`)
+2. Contains a parseable `Away @ Home` matchup
+3. Has a `(NN)` ranking prefix on at least one of the two teams
+
+The date filter, network filter, and game dedup all apply as normal. If the entry's sport is anything other than `NCAAF`, the entry is ignored and a warning is logged once per scan.
+
+**Note:** the rank is read from the title. If the tracker post omits the `(NN)` prefix, a ranked game will look unranked and won't match. This is a known limitation of title-based detection.
 
 ### Network Filter
 
@@ -239,6 +262,18 @@ If you follow a college team that plays multiple sports, use the **sport** field
 ### A game was skipped but I wanted it
 
 Check the watchlist entry's **exclude networks** field. If the game aired on a network listed there, it was skipped intentionally. Remove that network from the field to grab it next time. Note that the skip happens at scan time, so a game already skipped won't be re-evaluated — it only affects future scans.
+
+### The Top 25 entry isn't grabbing anything
+
+Three things to check:
+
+1. **Sport must be `NCAAF`.** Any other value (or empty) causes the entry to be ignored, with a warning in the log.
+2. **The game must actually be ranked.** Titles only carry a `(NN)` prefix when at least one team is ranked. Unranked games won't match.
+3. **The tracker post must include the rank.** If the uploader omitted the `(NN)`, the game won't match even if the teams are ranked.
+
+### A game matched both a team entry and the Top 25 entry
+
+Both entries match the same release, but it's only grabbed once. The watchlist is evaluated in order, and the **first matching entry's** exclude list is used. If both entries have the same exclude networks — which is typical — there's no difference. If they differ, the earlier entry wins.
 
 ### A game was grabbed that my DVR also recorded
 

@@ -88,11 +88,13 @@ def parse_network(title: str) -> str:
 def parse_teams(title: str) -> tuple:
     """Extract the two team names from the title, normalized.
 
-    Returns (team_a, team_b) sorted alphabetically, or ("", "") if not found.
+    Returns (team_a, team_b, ranked) where team_a/team_b are sorted
+    alphabetically and ranked is True if at least one team had a (NN)
+    prefix. Returns ("", "", False) if the matchup can't be parsed.
     """
     match = re.search(r" / (\d{2}\.\d{2}\.\d{4}) / (.+?) \[", title)
     if not match:
-        return ("", "")
+        return ("", "", False)
 
     matchup = match.group(2)
 
@@ -101,20 +103,20 @@ def parse_teams(title: str) -> tuple:
     elif " vs " in matchup:
         away, home = matchup.split(" vs ", 1)
     else:
-        return ("", "")
+        return ("", "", False)
+
+    def has_rank(name: str) -> bool:
+        return bool(re.match(r"^\(\d+\)\s*", name))
+
+    ranked = has_rank(away) or has_rank(home)
 
     def normalize(name: str) -> str:
         name = re.sub(r"^\(\d+\)\s*", "", name)   # strip (11)
         return name.strip().lower()
 
     teams = sorted([normalize(away), normalize(home)])
-    return (teams[0], teams[1])
+    return (teams[0], teams[1], ranked)
 
-def build_game_key(date: str, team_a: str, team_b: str) -> str:
-    """Build the dedup key: date + both teams, sorted."""
-    if not date or not team_a or not team_b:
-        return ""
-    return f"{date}|{team_a}|{team_b}"
 
 # ---------------------------------------------------------------------------
 # Team logic
@@ -134,8 +136,19 @@ def matches_team(title: str):
         if sport and not title_lower.startswith(sport + " "):
             continue
 
-        team = entry.get("team", "").strip().lower()
-        if team and team in title_lower:
+        team = entry.get("team", "").strip()
+        team_lower = team.lower()
+
+        # Reserved keyword: Top 25
+        if team_lower == "top 25":
+            if sport != "ncaaf":
+                continue  # invalid, already warned at query build
+            _, _, ranked = parse_teams(title)
+            if ranked:
+                return entry
+            continue
+
+        if team_lower and team_lower in title_lower:
             return entry
 
         aliases = entry.get("aliases", "")
@@ -145,6 +158,7 @@ def matches_team(title: str):
                 return entry
 
     return None
+
 
 # ---------------------------------------------------------------------------
 # Scan orchestration
@@ -177,6 +191,18 @@ async def scan_once() -> dict:
     query_terms = []
     for entry in watchlist:
         team = entry.get("team", "").strip()
+        sport = entry.get("sport", "").strip().lower()
+
+        if team.lower() == "top 25":
+            if sport != "ncaaf":
+                logger.warning(
+                    "Ignoring 'Top 25' entry: sport must be NCAAF (found: %r)",
+                    entry.get("sport", ""),
+                )
+                continue
+            query_terms.append("NCAAF")
+            continue
+
         if team:
             query_terms.append(team)
 
@@ -239,7 +265,7 @@ async def scan_once() -> dict:
             continue
 
         parsed_date = parse_date(title)
-        team_a, team_b = parse_teams(title)
+        team_a, team_b, _ranked = parse_teams(title)
         game_key = build_game_key(parsed_date, team_a, team_b)
 
         if game_key:
@@ -270,7 +296,7 @@ async def scan_once() -> dict:
             continue
 
         parsed_date = parse_date(title)
-        team_a, team_b = parse_teams(title)
+        team_a, team_b, _ranked = parse_teams(title)
         game_key = build_game_key(parsed_date, team_a, team_b)
 
         record_grab(guid, title, game_key=game_key)
