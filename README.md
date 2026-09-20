@@ -12,7 +12,7 @@ You give it a list of teams. It scans the tracker through Jackett every 90 minut
 - **Filters by date** — only games dated today or yesterday (in your local timezone) are considered
 - **Filters by team** — case-insensitive substring match against your watchlist, with optional per-entry sport prefix (NCAAF, NCAAB, MLB, etc.) to avoid cross-sport false positives
 - **Filters by broadcast network** — each watchlist entry can exclude networks your DVR already records (e.g. `ABC, CBS, NBC, FOX`), so only games you can't record get grabbed
-- **Grabs ranked CFB games** — add a watchlist entry with the team name `Top 25` and sport `NCAAF` to grab any college football game where at least one team is ranked
+- **Grabs ranked-vs-ranked CFB games** — add a watchlist entry with the team name `Top 25` and sport `NCAAF` to grab college football games where **both** teams are ranked
 - **Grabs NFL primetime games** — add a watchlist entry with the team name `ALL` and sport `NFL` to grab any NFL game, then use the exclude networks list to skip the ones your DVR can record
 - **Deduplicates by Torznab GUID** so the same game is never grabbed twice
 - Sends to **qBittorrent** with the `gametimarr` category
@@ -121,13 +121,13 @@ In the **Watchlist** panel:
 
 Click **Add**.
 
-To grab **ranked college football games** regardless of team, add an entry with:
+To grab **ranked-vs-ranked college football games** regardless of team, add an entry with:
 
 - **Team** — `Top 25`
 - **Sport** — `NCAAF` (required — the entry is ignored otherwise)
 - **Exclude networks** — same as any other entry
 
-This matches any title starting with `NCAAF ` where at least one team carries a `(NN)` ranking prefix.
+This matches any title starting with `NCAAF ` where **both** teams carry a `(NN)` ranking prefix. Games where only one team is ranked — typically a ranked team playing a lower-tier opponent — are skipped.
 
 Click **Add**.
 
@@ -188,7 +188,7 @@ A watchlist entry with the team name `Top 25` is a reserved keyword, not a team.
 
 1. Starts with `NCAAF ` (so the sport must be `NCAAF`)
 2. Contains a parseable `Away @ Home` matchup
-3. Has a `(NN)` ranking prefix on at least one of the two teams
+3. Has a `(NN)` ranking prefix on **both** of the two teams
 
 The date filter, network filter, and game dedup all apply as normal. If the entry's sport is anything other than `NCAAF`, the entry is ignored and a warning is logged once per scan.
 

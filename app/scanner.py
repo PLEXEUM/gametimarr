@@ -89,12 +89,13 @@ def parse_teams(title: str) -> tuple:
     """Extract the two team names from the title, normalized.
 
     Returns (team_a, team_b, ranked) where team_a/team_b are sorted
-    alphabetically and ranked is True if at least one team had a (NN)
-    prefix. Returns ("", "", False) if the matchup can't be parsed.
+    alphabetically and ranked is the count of teams that carried a (NN)
+    prefix (0, 1, or 2). Returns ("", "", 0) if the matchup can't be
+    parsed.
     """
     match = re.search(r" / (\d{2}\.\d{2}\.\d{4}) / (.+?) \[", title)
     if not match:
-        return ("", "", False)
+        return ("", "", 0)
 
     matchup = match.group(2)
 
@@ -103,12 +104,12 @@ def parse_teams(title: str) -> tuple:
     elif " vs " in matchup:
         away, home = matchup.split(" vs ", 1)
     else:
-        return ("", "", False)
+        return ("", "", 0)
 
     def has_rank(name: str) -> bool:
         return bool(re.match(r"^\(\d+\)\s*", name))
 
-    ranked = has_rank(away) or has_rank(home)
+    ranked = int(has_rank(away)) + int(has_rank(home))
 
     def normalize(name: str) -> str:
         name = re.sub(r"^\(\d+\)\s*", "", name)   # strip (11)
@@ -154,7 +155,7 @@ def matches_team(title: str):
             if sport != "ncaaf":
                 continue  # invalid, already warned at query build
             _, _, ranked = parse_teams(title)
-            if ranked:
+            if ranked == 2:
                 return entry
             continue
 
