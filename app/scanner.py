@@ -134,13 +134,19 @@ def build_game_key(parsed_date: str, team_a: str, team_b: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def matches_team(title: str):
-    """Return the matched watchlist entry, or None."""
+def matches_teams(title: str) -> list:
+    """Return ALL watchlist entries that match this title.
+
+    A release can match multiple entries (e.g. 'All' plus an individual
+    team). Each matching entry is evaluated independently when deciding
+    whether to grab; this function does not pick a winner.
+    """
     entries = get_watchlist()
     if not entries:
-        return None
+        return []
 
     title_lower = title.lower()
+    matched = []
 
     for entry in entries:
         sport = entry.get("sport", "").strip().lower()
@@ -156,7 +162,7 @@ def matches_team(title: str):
                 continue  # invalid, already warned at query build
             _, _, ranked = parse_teams(title)
             if ranked == 2:
-                return entry
+                matched.append(entry)
             continue
 
         # Reserved keyword: ALL
@@ -165,19 +171,21 @@ def matches_team(title: str):
                 continue  # invalid, already warned at query build
             team_a, team_b, _ = parse_teams(title)
             if team_a and team_b:
-                return entry
+                matched.append(entry)
             continue
 
         if team_lower and team_lower in title_lower:
-            return entry
+            matched.append(entry)
+            continue
 
         aliases = entry.get("aliases", "")
         for alias in aliases.split(","):
             alias = alias.strip().lower()
             if alias and alias in title_lower:
-                return entry
+                matched.append(entry)
+                break
 
-    return None
+    return matched
 
 
 # ---------------------------------------------------------------------------
@@ -278,16 +286,29 @@ async def scan_once() -> dict:
         if not matches_date(title):
             continue
 
-        matched_entry = matches_team(title)
-        if not matched_entry:
+        matched_entries = matches_teams(title)
+        if not matched_entries:
             continue
 
         network = parse_network(title)
-        exclude_raw = matched_entry.get("exclude_networks", "") or ""
-        exclude_list = [n.strip().lower() for n in exclude_raw.split(",") if n.strip()]
 
-        if network and network.lower() in exclude_list:
-            logger.info(f"Skipped (network '{network}' in exclude list): {title[:70]}")
+        # Grab always wins: if ANY matching entry does not exclude this
+        # network, the release is eligible. Exclude lists are per-entry
+        # vetoes, never a global block.
+        deciding_entry = None
+        for entry in matched_entries:
+            exclude_raw = entry.get("exclude_networks", "") or ""
+            exclude_list = [n.strip().lower() for n in exclude_raw.split(",") if n.strip()]
+            if not (network and network.lower() in exclude_list):
+                deciding_entry = entry
+                break
+
+        if not deciding_entry:
+            entry_names = ", ".join(e.get("team", "") for e in matched_entries)
+            logger.info(
+                f"Skipped (network '{network}' excluded by all matching entries "
+                f"[{entry_names}]): {title[:70]}"
+            )
             continue
 
         guid = release.get("guid", "")
@@ -307,6 +328,8 @@ async def scan_once() -> dict:
                 continue
             seen_game_keys.add(game_key)
 
+        release["_deciding_entry"] = deciding_entry.get("team", "")
+        release["_matched_entries"] = [e.get("team", "") for e in matched_entries]
         matched.append(release)
 
     summary["matched"] = len(matched)
@@ -329,15 +352,24 @@ async def scan_once() -> dict:
         team_a, team_b, _ranked = parse_teams(title)
         game_key = build_game_key(parsed_date, team_a, team_b)
 
-        record_grab(guid, title, game_key=game_key)
-
         result = await qbit.add_torrent(download_url, label="gametimarr")
 
         if result.get("success"):
             torrent_hash = result.get("hash", "")
-            if torrent_hash:
-                record_grab(guid, title, torrent_hash, game_key=game_key)
-            logger.info(f"Grabbed: {title[:70]}")
+            if not torrent_hash:
+                logger.error(f"qBittorrent accepted but returned no hash, will retry next scan: {title[:60]}")
+                summary["errors"] += 1
+                continue
+            record_grab(guid, title, torrent_hash, game_key=game_key)
+            matched_names = release.get("_matched_entries", [])
+            deciding = release.get("_deciding_entry", "")
+            if matched_names:
+                logger.info(
+                    f"Grabbed: {title[:70]} "
+                    f"(matched: {', '.join(matched_names)}; grabbed by {deciding})"
+                )
+            else:
+                logger.info(f"Grabbed: {title[:70]}")
             summary["grabbed"] += 1
         else:
             logger.error(f"qBittorrent rejected: {title[:50]} - {result.get('error', 'unknown')}")

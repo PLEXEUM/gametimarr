@@ -192,6 +192,8 @@ A watchlist entry with the team name `Top 25` is a reserved keyword, not a team.
 
 The date filter, network filter, and game dedup all apply as normal. If the entry's sport is anything other than `NCAAF`, the entry is ignored and a warning is logged once per scan.
 
+A game can match both the `Top 25` entry and an individual team entry. Both entries are evaluated independently, and each applies its own exclude list. If either entry allows the game, it is grabbed. The dedup layer ensures it is only grabbed once.
+
 **Note:** the rank is read from the title. If the tracker post omits the `(NN)` prefix, a ranked game will look unranked and won't match. This is a known limitation of title-based detection.
 
 ### ALL Filter
@@ -201,11 +203,26 @@ A watchlist entry with the team name `ALL` is a reserved keyword, not a team. It
 1. Starts with `NFL ` (so the sport must be `NFL`)
 2. Contains a parseable `Away @ Home` matchup
 
-Unlike `Top 25`, there is no ranking requirement — any NFL game matches. The network filter then does the real work: games on excluded networks are skipped, everything else is grabbed.
+Unlike `Top 25`, there is no ranking requirement — any NFL game matches. The entry's exclude list then does the real work: games on excluded networks are skipped by this entry, and games not on that list are grabbed by it.
+
+The `ALL` entry is intended as a catch-all. Its exclude list should contain the networks your DVR can already record (`ABC`, `CBS`, `NBC`, `FOX`), so it picks up only the games you can't get otherwise. Individual team entries then act as overrides — a team entry with no exclusions will grab that team's games even when `ALL` would have skipped them.
 
 The date filter and game dedup apply as normal. If the entry's sport is anything other than `NFL`, the entry is ignored and a warning is logged once per scan.
 
 **Note:** `ALL` is scoped to NFL. It queries Jackett for `NFL Football`, which is specific enough to return a usable result set. Other sports are not supported by this keyword.
+
+### Grab Always Wins
+
+The watchlist is a set of independent rules, not a priority list. When a release matches more than one entry, each entry is evaluated on its own:
+
+- Each entry applies **its own** exclude list.
+- A release is grabbed if **at least one** matching entry does not exclude it.
+- If **every** matching entry excludes it, the release is skipped.
+- Dedup (by GUID and game key) ensures it's grabbed at most once, no matter how many entries matched.
+
+This means an exclude list is a veto *within a rule*, never a global block. A narrow entry can override a broad one: `ALL` with `ABC, CBS, NBC, FOX` excluded skips broadcast games, but a `Chiefs` entry with no exclusions will still grab a Chiefs game on CBS.
+
+The practical consequence: the exclude list on a catch-all entry like `ALL` is load-bearing. If you empty it, every NFL game is grabbed and no team entry can narrow that down, because `ALL` will always vote to grab. Team entries only matter when the catch-all's exclude list actually covers the game in question.
 
 ### Network Filter
 
@@ -216,8 +233,6 @@ If the parsed network is in that team's exclude list, the release is skipped and
 Leave the field empty for teams you want to grab regardless of network, such as out-of-market NFL games on broadcast networks your DVR can't receive.
 
 **To stop excluding a network later** (e.g. FOX becomes DRM-locked and your DVR can no longer record it), edit the exclude list on each watchlist entry that contains it and remove `FOX`.
-
-- **Deduplicates by game** — stores the date and both team names for every grab, so the same game in a different quality (e.g. 4K vs 720p) is skipped
 
 ### Game Filter
 
@@ -297,7 +312,9 @@ Three things to check:
 
 ### A game matched both a team entry and the Top 25 entry
 
-Both entries match the same release, but it's only grabbed once. The watchlist is evaluated in order, and the **first matching entry's** exclude list is used. If both entries have the same exclude networks — which is typical — there's no difference. If they differ, the earlier entry wins.
+Both entries match the release, and both are evaluated independently. The release is grabbed if **either** entry allows it — each entry's exclude list is a per-entry veto, not a global block. The dedup layer ensures it's only grabbed once.
+
+The same applies to a game matching both the `ALL` entry and an individual team entry. If `ALL` excludes CBS but the team entry has no exclusions, the CBS game is grabbed, because the team entry wants it. That's the intended behavior: `ALL` is the baseline rule, team entries are overrides.
 
 ### The ALL entry isn't grabbing anything
 
