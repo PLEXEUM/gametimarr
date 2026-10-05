@@ -15,6 +15,7 @@ You give it a list of teams. It scans the tracker through Jackett every 90 minut
 - **Grabs ranked-vs-ranked CFB games** — add a watchlist entry with the team name `Top 25` and sport `NCAAF` to grab college football games where **both** teams are ranked
 - **Grabs NFL primetime games** — add a watchlist entry with the team name `ALL` and sport `NFL` to grab any NFL game, then use the exclude networks list to skip the ones your DVR can record
 - **Deduplicates by Torznab GUID** so the same game is never grabbed twice
+- **Skips games your Channels DVR already recorded** — if Channels has it, gametimarr doesn't grab it
 - Sends to **qBittorrent** with the `gametimarr` category
 - **Copies completed files** to a destination folder while the original stays seeding
 - **Runs on a schedule** — scanner every 90 minutes, monitor every 60 minutes
@@ -106,6 +107,7 @@ Open `http://<your-host>:7667` and fill in:
 
 - **Jackett Torznab URL** — from your Jackett dashboard
 - **qBittorrent** — host, port, username, password
+- **Channels DVR URL** — optional, e.g. `http://192.168.0.34:8089`. Leave empty to disable the Channels integration.
 - **Destination** — `/watch` (this is the container path, not the host path)
 
 Click **Test** on both. Click **Save Settings**.
@@ -118,8 +120,11 @@ In the **Watchlist** panel:
 - **Aliases** — optional, comma-separated search terms (e.g. `Yankees, NYY`)
 - **Sport** — optional, a prefix filter (e.g. `NCAAF`, `NCAAB`, `MLB`)
 - **Exclude networks** — optional, comma-separated networks your DVR can already record (e.g. `ABC, CBS, NBC, FOX`). Games on these networks are skipped. Leave empty to grab everything for this team.
+- **DVR name** — optional, the name Channels DVR uses for this team in its guide data. Only needed when the tracker name and the guide name differ, which is common for college teams (`Miami Hurricanes` in the tracker, `Miami` in the guide). Leave empty to fall back to the team name.
 
 Click **Add**.
+
+**About the DVR name:** Channels DVR uses full names for NFL teams (`Buffalo Bills`) and school names for college teams (`Miami`, `Auburn`). The tracker uses nicknames for NFL (`Bills`) and school-plus-mascot for college (`Miami Hurricanes`). The scanner matches the DVR name against Channels' event titles using word-boundary matching, so `Bills` matches `Buffalo Bills` automatically. College entries need the DVR name set: `Miami Hurricanes` won't match `Miami` without it.
 
 To grab **ranked-vs-ranked college football games** regardless of team, add an entry with:
 
@@ -223,6 +228,27 @@ The watchlist is a set of independent rules, not a priority list. When a release
 This means an exclude list is a veto *within a rule*, never a global block. A narrow entry can override a broad one: `ALL` with `ABC, CBS, NBC, FOX` excluded skips broadcast games, but a `Chiefs` entry with no exclusions will still grab a Chiefs game on CBS.
 
 The practical consequence: the exclude list on a catch-all entry like `ALL` is load-bearing. If you empty it, every NFL game is grabbed and no team entry can narrow that down, because `ALL` will always vote to grab. Team entries only matter when the catch-all's exclude list actually covers the game in question.
+
+The Channels DVR check is a separate filter that runs after the exclude-list check. It doesn't participate in the "grab always wins" rule — it's a global veto. If Channels has the game, it's skipped, no matter how many watchlist entries want it. See the Channels DVR Check section below.
+
+### Channels DVR Check
+
+If a Channels DVR URL is configured, the scanner queries it once per scan and builds a list of every sports recording the DVR has. Before grabbing a release that passed the network filter, the scanner checks whether any game in that list matches. If it does, the release is skipped.
+
+The check is a **global veto**, independent of the network filter. A release is only grabbed if it passes both:
+
+1. At least one matching watchlist entry does not exclude the network.
+2. Channels DVR does not already have the game.
+
+**How the matching works:** Channels exposes an `event_title` field for real DVR recordings (e.g. `"New England Patriots at Buffalo Bills"`, `"Miami at Clemson"`). The scanner pulls these titles, filters to entries with `"Sports event"` in their categories — which excludes gametimarr's own imports into the Sports folder — and splits each title into its two team names.
+
+For each candidate release, the scanner takes the effective DVR name for each matching watchlist entry (`dvr_name` if set, otherwise the team name), and checks whether it appears as a whole word in any Channels team name. If it does, the DVR has the game.
+
+**Word-boundary matching:** `Bills` matches `Buffalo Bills` but not `billsgate`. `Miami` matches `Miami` but not `Miami (OH)` — wait, it does match `Miami (OH)`. The match is a whole word against the Channels team name, so a school with a disambiguating suffix in the guide could produce a false positive. In practice, the guide uses the plain school name for major programs, so this is rare.
+
+**Fail-open behavior:** if Channels is unreachable or returns an error, the check is skipped for that scan, and the network filter is the only gate. This means a Channels outage never blocks grabs. You might get a duplicate if the DVR actually has the game and Channels was down, but you never miss a game.
+
+**Timing:** by the time a torrent exists on the tracker, the DVR recording is always already complete. A game airs, the DVR records it, and only hours later does someone upload it. So a completed-recordings check is sufficient; there's no window where the DVR is going to record something the tracker already has.
 
 ### Network Filter
 
@@ -343,6 +369,22 @@ This is prevented by the game filter, which keys on the date and both team names
 
 The game key includes the date, so consecutive games in a series are treated separately. If a game was skipped, check whether the tracker posted it with a date that doesn't match the title's own date field — the scanner reads the date from the title, and a mis-dated upload will produce a different key than expected.
 
+### I configured Channels DVR but nothing is being skipped
+
+Three things to check:
+
+1. **College entries need a DVR name.** The tracker name (`Miami Hurricanes`) won't match Channels' guide name (`Miami`) without it. Add `Miami` as the DVR name on that watchlist entry. NFL entries usually don't need this — `Bills` is a whole word in `Buffalo Bills`, so the fallback works.
+2. **The DVR might genuinely not have the game.** If you didn't record it, or the recording failed, the check correctly returns no match and the game gets grabbed. Check the Channels UI to confirm.
+3. **The game might not be in Channels' `Sports event` category.** Some recordings land in `Sports non-event` or other categories if the guide data is unusual. Check the raw API response with `curl http://<channels-ip>:8089/api/v1/episodes | grep event_title` to see what the scanner sees.
+
+### A game was grabbed that Channels DVR already had
+
+The matching is name-based, so a spelling mismatch will cause a miss. Check the log for the tracker title and look up what Channels calls the same game in its UI. If they differ (e.g. `Miami (FL)` vs `Miami`), set the DVR name on the watchlist entry to the Channels-side spelling.
+
+### Channels is unreachable
+
+The scan proceeds without the DVR check. The network filter still runs, and the exclude lists do their job. You'll see `Channels fetch failed:` in the log with the reason. The next scan retries. Nothing breaks — you just lose the extra filter during the outage.
+
 ---
 
 ## API Endpoints
@@ -357,6 +399,7 @@ All endpoints are on port **7667**. None require authentication — keep the con
 | POST | `/watchlist` | Add or remove a team |
 | POST | `/test/jackett` | Test a Torznab URL without saving |
 | POST | `/test/qbit` | Test qBittorrent credentials without saving |
+| POST | `/test/channels` | Test a Channels DVR URL without saving |
 | POST | `/run/scan` | Trigger a scan immediately |
 | POST | `/run/monitor` | Trigger a monitor cycle immediately |
 
@@ -377,6 +420,7 @@ State lives in three places:
 - **SQLite** (`/data/gametimarr.db`) — settings, watchlist, and grab rows used for both GUID-level and game-level dedup.
 - **Log files** (`/logs/`) — daily rotating, 5-day retention.
 - **qBittorrent** — the actual torrents and their files.
+- **Channels DVR** — read-only. Queried once per scan to see what recordings exist; never modified.
 
 The app never modifies or moves qBittorrent's files. It reads them, computes the info-hash from the `.torrent` bytes, and copies to the destination. The original torrent continues seeding unaffected.
 
@@ -391,6 +435,7 @@ gametimarr/
 │   ├── main.py               # Entry point, threads, path validation
 │   ├── database.py           # SQLite schema and helpers, grab dedup
 │   ├── jackett.py            # Torznab feed url
+│   ├── channels.py           # Channels DVR client for DVR-exclusion matching
 │   ├── scanner.py            # Scan loop, date/team/sport/network/game filters
 │   ├── qbittorrent.py        # qBittorrent API v2 client
 │   ├── bencode.py            # Torrent info-hash extraction

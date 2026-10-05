@@ -51,7 +51,8 @@ def _create_tables() -> None:
                 team            TEXT PRIMARY KEY,
                 aliases         TEXT,
                 sport           TEXT DEFAULT '',
-                exclude_networks TEXT DEFAULT ''
+                exclude_networks TEXT DEFAULT '',
+                dvr_name        TEXT DEFAULT ''
             )
         """)
 
@@ -62,6 +63,8 @@ def _create_tables() -> None:
             cur.execute("ALTER TABLE watchlist ADD COLUMN sport TEXT DEFAULT ''")
         if "exclude_networks" not in columns:
             cur.execute("ALTER TABLE watchlist ADD COLUMN exclude_networks TEXT DEFAULT ''")
+        if "dvr_name" not in columns:
+            cur.execute("ALTER TABLE watchlist ADD COLUMN dvr_name TEXT DEFAULT ''")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS grabbed (
@@ -119,30 +122,32 @@ def get_all_settings() -> dict:
 def get_watchlist() -> list:
     with _lock:
         cur = _conn.cursor()
-        cur.execute("SELECT team, aliases, sport, exclude_networks FROM watchlist ORDER BY team")
+        cur.execute("SELECT team, aliases, sport, exclude_networks, dvr_name FROM watchlist ORDER BY team")
         return [
             {
                 "team": row["team"],
                 "aliases": row["aliases"] or "",
                 "sport": row["sport"] or "",
                 "exclude_networks": row["exclude_networks"] or "",
+                "dvr_name": row["dvr_name"] or "",
             }
             for row in cur.fetchall()
         ]
 
-def add_team(team: str, aliases: str = "", sport: str = "", exclude_networks: str = "") -> None:
+def add_team(team: str, aliases: str = "", sport: str = "", exclude_networks: str = "", dvr_name: str = "") -> None:
     team = team.strip()
     if not team:
         return
     with _lock:
         cur = _conn.cursor()
         cur.execute("""
-            INSERT INTO watchlist (team, aliases, sport, exclude_networks) VALUES (?, ?, ?, ?)
+            INSERT INTO watchlist (team, aliases, sport, exclude_networks, dvr_name) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(team) DO UPDATE SET
                 aliases = excluded.aliases,
                 sport = excluded.sport,
-                exclude_networks = excluded.exclude_networks
-        """, (team, aliases.strip(), sport.strip(), exclude_networks.strip()))
+                exclude_networks = excluded.exclude_networks,
+                dvr_name = excluded.dvr_name
+        """, (team, aliases.strip(), sport.strip(), exclude_networks.strip(), dvr_name.strip()))
         _conn.commit()
 
 

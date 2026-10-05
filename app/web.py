@@ -14,6 +14,7 @@ from app.database import (
 )
 from app.jackett import JackettClient
 from app.qbittorrent import QBittorrentClient
+from app.channels import ChannelsClient
 
 app = FastAPI()
 
@@ -91,6 +92,16 @@ INDEX_HTML = """
   <div class="status" id="qbit_status"></div>
 </div>
 
+<h2>Channels DVR</h2>
+<div class="panel">
+  <label>Server URL</label>
+  <div class="row">
+    <div><input type="text" id="channels_url" placeholder="http://192.168.0.34:8089"></div>
+    <button onclick="testChannels()">Test</button>
+  </div>
+  <div class="status" id="channels_status"></div>
+</div>
+
 <h2>Destination</h2>
 <div class="panel">
   <label>Folder where completed games are copied</label>
@@ -116,6 +127,7 @@ INDEX_HTML = """
     <div><input type="text" id="new_aliases" placeholder="Aliases (comma-separated)"></div>
     <div><input type="text" id="new_sport" placeholder="Sport (NCAAF, NCAAB, MLB...)"></div>
     <div><input type="text" id="new_exclude_networks" placeholder="Exclude networks (ABC, CBS, NBC, FOX)"></div>
+    <div><input type="text" id="new_dvr_name" placeholder="DVR name (optional)"></div>
     <button onclick="addTeam()">Add</button>
   </div>
   <div id="watchlist"></div>
@@ -137,6 +149,7 @@ async function loadStatus() {
     document.getElementById('qbit_port').value = s.qbit_port || '';
     document.getElementById('qbit_username').value = s.qbit_username || '';
     document.getElementById('qbit_password').value = s.qbit_password || '';
+    document.getElementById('channels_url').value = s.channels_url || '';
     document.getElementById('destination_path').value = s.destination_path || '';
     initialLoadDone = true;
   }
@@ -151,6 +164,7 @@ async function loadStatus() {
       if (t.aliases) parts.push(`<span class="aliases">(${escapeHtml(t.aliases)})</span>`);
       if (t.sport) parts.push(`<span class="aliases">[${escapeHtml(t.sport)}]</span>`);
       if (t.exclude_networks) parts.push(`<span class="aliases">{${escapeHtml(t.exclude_networks)}}</span>`);
+      if (t.dvr_name) parts.push(`<span class="aliases">&lt;${escapeHtml(t.dvr_name)}&gt;</span>`);
       return `<div class="team">
         <span>${parts.join(' ')}</span>
         <button class="small" onclick="removeTeam('${escapeAttr(t.team)}')">Remove</button>
@@ -170,6 +184,7 @@ async function saveConfig() {
     qbit_port: document.getElementById('qbit_port').value,
     qbit_username: document.getElementById('qbit_username').value,
     qbit_password: document.getElementById('qbit_password').value,
+    channels_url: document.getElementById('channels_url').value,
     destination_path: document.getElementById('destination_path').value,
   };
 
@@ -223,22 +238,39 @@ async function testQbit() {
   status.className = 'status ' + (data.success ? 'ok' : 'err');
 }
 
+async function testChannels() {
+  const status = document.getElementById('channels_status');
+  status.textContent = 'Testing...';
+  status.className = 'status';
+
+  const res = await fetch('/test/channels', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: document.getElementById('channels_url').value}),
+  });
+  const data = await res.json();
+  status.textContent = data.message;
+  status.className = 'status ' + (data.success ? 'ok' : 'err');
+}
+
 async function addTeam() {
   const team = document.getElementById('new_team').value.trim();
   const aliases = document.getElementById('new_aliases').value.trim();
   const sport = document.getElementById('new_sport').value.trim();
   const exclude_networks = document.getElementById('new_exclude_networks').value.trim();
+  const dvr_name = document.getElementById('new_dvr_name').value.trim();
   if (!team) return;
 
   await fetch('/watchlist', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'add', team, aliases, sport, exclude_networks}),
+    body: JSON.stringify({action: 'add', team, aliases, sport, exclude_networks, dvr_name}),
   });
   document.getElementById('new_team').value = '';
   document.getElementById('new_aliases').value = '';
   document.getElementById('new_sport').value = '';
   document.getElementById('new_exclude_networks').value = '';
+  document.getElementById('new_dvr_name').value = '';
   loadStatus();
 }
 
@@ -332,6 +364,7 @@ async def save_config(request: Request):
         "qbit_port",
         "qbit_username",
         "qbit_password",
+        "channels_url",
         "destination_path",
     }
 
@@ -359,7 +392,8 @@ async def update_watchlist(request: Request):
         aliases = (body.get("aliases") or "").strip()
         sport = (body.get("sport") or "").strip()
         exclude_networks = (body.get("exclude_networks") or "").strip()
-        add_team(team, aliases, sport, exclude_networks)
+        dvr_name = (body.get("dvr_name") or "").strip()
+        add_team(team, aliases, sport, exclude_networks, dvr_name)
     elif action == "remove":
         remove_team(team)
     else:
@@ -395,6 +429,19 @@ async def test_qbit(request: Request):
         password=body.get("password"),
     )
     return JSONResponse(result)
+
+
+@app.post("/test/channels")
+async def test_channels(request: Request):
+    try:
+        body = await request.json()
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)})
+
+    client = ChannelsClient()
+    result = await client.test_connection(body.get("url", ""))
+    return JSONResponse(result)
+
 
 @app.post("/run/scan")
 async def run_scan():

@@ -22,6 +22,7 @@ from app.database import (
 )
 from app.jackett import JackettClient
 from app.qbittorrent import QBittorrentClient
+from app.channels import ChannelsClient
 
 logger = logging.getLogger("gametimarr.scanner")
 
@@ -189,11 +190,44 @@ def matches_teams(title: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Channels DVR matching
+# ---------------------------------------------------------------------------
+
+def _dvr_has_game(matched_entries: list, channels_games: list) -> str:
+    """Return the matched Channels event title if any matching watchlist entry
+    maps to a Channels DVR recording, else ''.
+
+    Skips 'All' and 'Top 25' keyword entries. Uses word-boundary matching so
+    short team names ('Bills') don't false-match inside longer words.
+    """
+    for entry in matched_entries:
+        team_lower = entry.get("team", "").strip().lower()
+        if team_lower in ("all", "top 25"):
+            continue
+
+        dvr_name = (entry.get("dvr_name") or "").strip().lower()
+        if not dvr_name:
+            dvr_name = team_lower
+
+        if not dvr_name:
+            continue
+
+        pattern = re.compile(r"\b" + re.escape(dvr_name) + r"\b")
+
+        for teams in channels_games:
+            for team in teams:
+                if pattern.search(team):
+                    return " at ".join(teams)
+
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Scan orchestration
 # ---------------------------------------------------------------------------
 
 async def scan_once() -> dict:
-    summary = {"items": 0, "matched": 0, "grabbed": 0, "errors": 0}
+    summary = {"items": 0, "matched": 0, "grabbed": 0, "errors": 0, "skipped_dvr": 0}
 
     jackett = JackettClient()
     if not jackett.is_configured():
@@ -204,6 +238,12 @@ async def scan_once() -> dict:
     if not qbit.is_configured():
         logger.warning("Scan skipped: qBittorrent not configured")
         return summary
+
+    channels = ChannelsClient()
+    channels_games = []
+    if channels.is_configured():
+        channels_games = await channels.get_recorded_games()
+        logger.info(f"Channels: {len(channels_games)} recorded sports events")
 
     logger.info("Scan started")
 
@@ -311,6 +351,15 @@ async def scan_once() -> dict:
             )
             continue
 
+        if channels_games:
+            dvr_match = _dvr_has_game(matched_entries, channels_games)
+            if dvr_match:
+                logger.info(
+                    f"Skipped (already on Channels DVR: \"{dvr_match}\"): {title[:70]}"
+                )
+                summary["skipped_dvr"] += 1
+                continue
+
         guid = release.get("guid", "")
         if is_grabbed(guid):
             continue
@@ -377,7 +426,8 @@ async def scan_once() -> dict:
 
     logger.info(
         f"Scan complete: {summary['items']} items, "
-        f"{summary['matched']} matched, {summary['grabbed']} grabbed"
+        f"{summary['matched']} matched, {summary['grabbed']} grabbed, "
+        f"{summary['skipped_dvr']} skipped by DVR"
     )
 
     return summary
