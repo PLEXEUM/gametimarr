@@ -326,6 +326,10 @@ async def scan_once() -> dict:
         if not matches_date(title):
             continue
 
+        if "condensed" in title.lower():
+            logger.info(f"Skipped (condensed game): {title[:70]}")
+            continue
+
         matched_entries = matches_teams(title)
         if not matched_entries:
             continue
