@@ -47,6 +47,20 @@ class ChannelsClient:
             if not isinstance(data, list):
                 return {"success": False, "message": "Unexpected response format"}
 
+            # Count real DVR sports recordings (nested under Airing).
+            # Excludes gametimarr's own Sports folder imports, which have
+            # only "Series" in Categories and no EventTitle.
+            sports_count = 0
+            for entry in data:
+                airing = entry.get("Airing") or {}
+                if "Sports event" in (airing.get("Categories") or []):
+                    sports_count += 1
+
+            if sports_count:
+                return {
+                    "success": True,
+                    "message": f"Connected to Channels DVR ({sports_count} sports recordings)",
+                }
             return {"success": True, "message": "Connected to Channels DVR"}
 
         except httpx.HTTPStatusError as e:
@@ -57,6 +71,7 @@ class ChannelsClient:
             return {"success": False, "message": "Could not reach server (check URL)"}
         except Exception as e:
             return {"success": False, "message": str(e)}
+
 
     # -----------------------------------------------------------------------
     # Public: fetch recorded games
@@ -95,11 +110,15 @@ class ChannelsClient:
         games = []
 
         for entry in data:
-            categories = entry.get("categories") or []
+            # /dvr/files returns PascalCase keys nested under "Airing".
+            # Sports recordings have "Sports event" in Categories and a
+            # populated EventTitle like "Los Angeles Dodgers at Atlanta Braves".
+            airing = entry.get("Airing") or {}
+            categories = airing.get("Categories") or []
             if "Sports event" not in categories:
                 continue
 
-            event_title = entry.get("event_title") or ""
+            event_title = airing.get("EventTitle") or ""
             if not event_title:
                 continue
 
