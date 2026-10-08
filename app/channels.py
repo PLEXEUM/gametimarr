@@ -40,7 +40,7 @@ class ChannelsClient:
 
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.get(f"{test_url}/api/v1/episodes")
+                response = await client.get(f"{test_url}/dvr/files?all=true")
                 response.raise_for_status()
                 data = response.json()
 
@@ -81,7 +81,7 @@ class ChannelsClient:
 
         try:
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                response = await client.get(f"{self.url}/api/v1/episodes")
+                response = await client.get(f"{self.url}/dvr/files?all=true")
                 response.raise_for_status()
                 data = response.json()
         except Exception as e:
