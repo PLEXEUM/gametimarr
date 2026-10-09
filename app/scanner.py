@@ -193,31 +193,42 @@ def matches_teams(title: str) -> list:
 # Channels DVR matching
 # ---------------------------------------------------------------------------
 
-def _dvr_has_game(matched_entries: list, channels_games: list) -> str:
-    """Return the matched Channels event title if any matching watchlist entry
-    maps to a Channels DVR recording, else ''.
+def _dvr_has_game(title: str, matched_entries: list, channels_games: list) -> str:
+    """Return the matched Channels event title if the release is already on
+    the DVR, else ''.
 
-    Skips 'All' and 'Top 25' keyword entries. Uses word-boundary matching so
-    short team names ('Bills') don't false-match inside longer words.
+    The primary signal is the release's own parsed teams from the tracker
+    title — this works even when only a keyword entry ('All', 'Top 25')
+    matched the release. Watchlist entries with an explicit `dvr_name` add
+    an extra alias to match against Channels (needed for college, where
+    Channels uses school names like 'Miami' and the tracker uses mascot
+    names like 'Miami Hurricanes').
+
+    Matching is word-boundary and bidirectional, so 'Bills' matches
+    'Buffalo Bills' and vice versa.
     """
+    team_a, team_b, _ = parse_teams(title)
+    if not (team_a and team_b):
+        return ""
+
+    # Names to search for in the Channels team list.
+    names = {team_a, team_b}
+
+    # Layer in any explicit dvr_name from matching watchlist entries.
+    # Keyword entries contribute nothing.
     for entry in matched_entries:
         team_lower = entry.get("team", "").strip().lower()
         if team_lower in ("all", "top 25"):
             continue
-
         dvr_name = (entry.get("dvr_name") or "").strip().lower()
-        if not dvr_name:
-            dvr_name = team_lower
+        if dvr_name:
+            names.add(dvr_name)
 
-        if not dvr_name:
-            continue
-
-        pattern = re.compile(r"\b" + re.escape(dvr_name) + r"\b")
-
-        for teams in channels_games:
-            for team in teams:
-                if pattern.search(team):
-                    return " at ".join(teams)
+    for channels_teams in channels_games:
+        for cteam in channels_teams:
+            for name in names:
+                if re.search(r"\b" + re.escape(name) + r"\b", cteam):
+                    return " at ".join(channels_teams)
 
     return ""
 
@@ -356,7 +367,7 @@ async def scan_once() -> dict:
             continue
 
         if channels_games:
-            dvr_match = _dvr_has_game(matched_entries, channels_games)
+            dvr_match = _dvr_has_game(title, matched_entries, channels_games)
             if dvr_match:
                 logger.info(
                     f"Skipped (already on Channels DVR: \"{dvr_match}\"): {title[:70]}"
