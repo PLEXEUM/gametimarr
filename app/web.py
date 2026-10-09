@@ -293,8 +293,13 @@ async function runScan() {
 
   if (data.success) {
     const r = data.result;
-    status.textContent = `Scan done: ${r.items} items, ${r.matched} matched, ${r.grabbed} grabbed`;
-    status.className = 'status ok';
+    if (r.already_running) {
+      status.textContent = 'Scan already in progress - try again shortly';
+      status.className = 'status err';
+    } else {
+      status.textContent = `Scan done: ${r.items} items, ${r.matched} matched, ${r.grabbed} grabbed`;
+      status.className = 'status ok';
+    }
   } else {
     status.textContent = 'Error: ' + data.error;
     status.className = 'status err';

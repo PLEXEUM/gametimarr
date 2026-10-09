@@ -250,6 +250,7 @@ async def scan_once() -> dict:
 
     if not _scan_lock.acquire(blocking=False):
         logger.info("Scan skipped: another scan is already running")
+        summary["already_running"] = True
         return summary
 
     try:
