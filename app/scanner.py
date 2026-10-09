@@ -11,6 +11,7 @@ Orchestrates one scan:
 
 import re
 import logging
+import threading
 from datetime import date, timedelta
 
 from app.database import (
@@ -27,6 +28,12 @@ from app.channels import ChannelsClient
 logger = logging.getLogger("gametimarr.scanner")
 
 DATE_PATTERN = re.compile(r"\b(\d{2}\.\d{2}\.\d{4})\b")
+
+# Only one scan may run at a time. Prevents concurrent scans (e.g. a manual
+# trigger overlapping a scheduled run) from both passing the dedup checks
+# before either writes its record_grab row, which would cause duplicate
+# add_torrent calls.
+_scan_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +244,20 @@ def _dvr_has_game(title: str, matched_entries: list, channels_games: list) -> st
 # Scan orchestration
 # ---------------------------------------------------------------------------
 
+
 async def scan_once() -> dict:
     summary = {"items": 0, "matched": 0, "grabbed": 0, "errors": 0, "skipped_dvr": 0}
 
+    if not _scan_lock.acquire(blocking=False):
+        logger.info("Scan skipped: another scan is already running")
+        return summary
+
+    try:
+        return await _scan_once_locked(summary)
+    finally:
+        _scan_lock.release()
+
+async def _scan_once_locked(summary: dict) -> dict:
     jackett = JackettClient()
     if not jackett.is_configured():
         logger.warning("Scan skipped: Jackett not configured")
